@@ -1,40 +1,17 @@
-use libcdio_sys::{cdio_free_device_list, cdio_get_devices, driver_id_t_DRIVER_LINUX};
-use std::ffi::CStr;
+use crate::cdio::{get_track_nums, list_drives};
 
-pub fn list_drives() -> Vec<String> {
-    let mut drives: Vec<String> = Vec::new();
-
-    unsafe {
-        let devlist = cdio_get_devices(driver_id_t_DRIVER_LINUX);
-
-        if devlist.is_null() {
-            return drives;
-        }
-
-        let mut i = 0;
-        loop {
-            let dev = *devlist.add(i);
-            if dev.is_null() {
-                break;
-            }
-
-            let cstr = CStr::from_ptr(dev);
-            drives.push(cstr.to_string_lossy().into_owned());
-            i += 1;
-        }
-
-        cdio_free_device_list(devlist);
-    }
-
-    drives
-}
+mod addressing;
+mod cdio;
+mod constants;
 
 fn main() {
     let drives = list_drives();
 
-    println!("Connected Drives:");
+    if drives.is_empty() {
+        return;
+    }
 
-    for drive in drives {
-        println!("{drive}");
+    unsafe {
+        get_track_nums(&drives[0]);
     }
 }
