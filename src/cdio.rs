@@ -5,6 +5,7 @@ use libcdio_sys::{
 };
 use std::ffi::{CStr, CString};
 
+#[allow(dead_code)]
 pub fn list_drives() -> Vec<String> {
     let mut drives: Vec<String> = Vec::new();
 
@@ -33,6 +34,7 @@ pub fn list_drives() -> Vec<String> {
     drives
 }
 
+#[allow(dead_code)]
 pub unsafe fn get_track_nums(device: &str) {
     unsafe {
         let device_name = CString::new(device).expect("CString::new failed");
@@ -46,7 +48,7 @@ pub unsafe fn get_track_nums(device: &str) {
             first_track_num + num_tracks - 1
         );
 
-        for i in 0..num_tracks {
+        for i in 0..=num_tracks {
             let lsn = cdio_get_track_lsn(p_cdio, i);
             if lsn != CDIO_INVALID_LSN {
                 println!("{:3}: {:06}", i, lsn);

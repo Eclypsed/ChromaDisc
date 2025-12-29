@@ -1,9 +1,17 @@
-use std::fmt;
+use std::{cmp::Ordering, fmt, ops::Sub};
 
-use derive_more::{Add, AddAssign, Div, DivAssign, Into, Mul, MulAssign, Neg, Sub, SubAssign};
+use derive_more::{
+    Add, AddAssign, Display, Div, DivAssign, Into, Mul, MulAssign, Neg, Sub, SubAssign,
+};
 use thiserror::Error;
 
 use crate::constants::{FRAMES_PER_MINUTE, FRAMES_PER_SECOND, PREGAP_OFFSET};
+
+mod sealed {
+    pub trait Sealed {}
+}
+
+pub trait Address: sealed::Sealed + Copy {}
 
 #[derive(Error, Debug)]
 pub enum BlockAddressError {
@@ -11,20 +19,15 @@ pub enum BlockAddressError {
     OutOfRange,
 }
 
-trait SectorIndex {
-    fn raw(self) -> i32;
-}
-
 /// Newtype representing a Logical Block Address (LBA)
 ///
-/// An LBA is a block index that includes the disc pregap. This means that LBA index 0 corresponds
-/// to the block at 00:00:00 in the potentially unreadable region depending on whether or not your
-/// drive can read hidden track one audio (HTOA).
+/// The LBA is the number that a Host uses to reference Logical Blocks on a block storage device.
 #[repr(transparent)]
 #[derive(
     Clone,
     Copy,
     Debug,
+    Display,
     PartialEq,
     Eq,
     PartialOrd,
@@ -43,129 +46,33 @@ trait SectorIndex {
 pub struct Lba(i32);
 
 impl Lba {
-    /// The Maximum Logical Block Address (LBA)
-    // TBH I've kinda made up this number because I don't understand why these constansts are the
-    // values they are in libcdio. My logic here is 100m * 60s * 75fps = 450,000. It's more
-    // conservative than libcdio's and nothing actually gets recorded up this high anyway so it should
-    // be fine hopefully.
-    pub const MAX: Lba = Lba(450_000);
-
-    /// The Minimum Logical Block Address (LBA)
-    pub const MIN: Lba = Lba(-450_000);
-
     /// The logical block at addres 0.
     pub const ZERO: Lba = Lba(0);
 }
 
-impl SectorIndex for Lba {
-    fn raw(self) -> i32 {
-        self.0
+impl sealed::Sealed for Lba {}
+
+impl Address for Lba {}
+
+impl From<i32> for Lba {
+    fn from(value: i32) -> Self {
+        Self(value)
     }
 }
 
-impl TryFrom<i32> for Lba {
-    type Error = BlockAddressError;
+impl From<Msf> for Lba {
+    /* The following comes strainght from the MMC-6 spec (Table 677) */
+    fn from(value: Msf) -> Self {
+        let offset_lba = (value.0 as i32 * 60 + value.1 as i32) * 75 + value.2 as i32;
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        let lba = Self(value);
-
-        if !(Self::MIN..=Self::MAX).contains(&lba) {
-            return Err(BlockAddressError::OutOfRange);
+        // Range from MMC-6: 00:00:00 <= MSF <= 89:59:74
+        if value <= Msf::new_unchecked(89, 59, 74) {
+            (offset_lba - PREGAP_OFFSET as i32).into()
         }
-
-        Ok(lba)
-    }
-}
-
-impl From<Lsn> for Lba {
-    fn from(value: Lsn) -> Self {
-        Self(value.raw() + i32::from(PREGAP_OFFSET))
-    }
-}
-
-impl TryFrom<Msf> for Lba {
-    type Error = BlockAddressError;
-
-    fn try_from(value: Msf) -> Result<Self, Self::Error> {
-        let Msf(m, s, f) = value;
-
-        let m: i32 = i32::from(m) * i32::from(FRAMES_PER_MINUTE);
-        let s: i32 = i32::from(s) * i32::from(FRAMES_PER_SECOND);
-        let f: i32 = f.into();
-
-        Self::try_from(m + s + f)
-    }
-}
-
-/// Newtype representing a Logical Sector Number (LSN)
-///
-/// An LSN is a block index that does not include the disc pregap. This means that LSN index 0
-/// corresponds to the first playable frame of audio in a CD-DA at 00:02:00.
-#[repr(transparent)]
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Into,
-    Add,
-    AddAssign,
-    Sub,
-    SubAssign,
-    Mul,
-    MulAssign,
-    Div,
-    DivAssign,
-    Neg,
-)]
-pub struct Lsn(i32);
-
-impl Lsn {
-    /// The Maximum Logical Sector Number (LSN)
-    pub const MAX: Lsn = Lsn(Lba::MAX.0 - PREGAP_OFFSET as i32);
-
-    /// The Minimum Logical Sector Number (LSN)
-    pub const MIN: Lsn = Lsn(Lba::MIN.0 - PREGAP_OFFSET as i32);
-
-    /// The logical sector at index 0.
-    pub const ZERO: Lsn = Lsn(0);
-}
-
-impl SectorIndex for Lsn {
-    fn raw(self) -> i32 {
-        self.0
-    }
-}
-
-impl TryFrom<i32> for Lsn {
-    type Error = BlockAddressError;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        let lsn = Self(value);
-
-        if !(Self::MIN..=Self::MAX).contains(&lsn) {
-            return Err(BlockAddressError::OutOfRange);
+        // Range from MMC-6: 90:00:00 <= MSF <= 99:59:74
+        else {
+            (offset_lba - 450150).into()
         }
-
-        Ok(lsn)
-    }
-}
-
-impl From<Lba> for Lsn {
-    fn from(value: Lba) -> Self {
-        Self(value.raw() - i32::from(PREGAP_OFFSET))
-    }
-}
-
-impl TryFrom<Msf> for Lsn {
-    type Error = BlockAddressError;
-
-    fn try_from(value: Msf) -> Result<Self, Self::Error> {
-        let lba = Lba::try_from(value)?;
-        Ok(Self::from(lba))
     }
 }
 
@@ -176,9 +83,80 @@ impl TryFrom<Msf> for Lsn {
 ///
 /// NOTE: libcdio stores MSF values in BCD notation. To quote its own GNU manual documents,
 /// "Perhaps this is a libcdio design flaw. It was originally done I guess because it was
-/// convenient for VCDs." Currently, I see little reason to keep the BCD so we'll just use binary.
+/// convenient for VCDs." Currently, I see little reason to use BCD so we'll just use binary.
 #[derive(Clone, Copy, Debug)]
 pub struct Msf(u8, u8, u8);
+
+impl sealed::Sealed for Msf {}
+
+impl Address for Msf {}
+
+impl Msf {
+    // Idk what is going on with the minute field of MSFs. At the start of the MMC-6 spec it is
+    // stated that according to the CD spec the values 0-79 are valid, but then in other parts
+    // (like the LBA to MSF translation table) MSFs are shown to go as high as 99.
+    const MAX_MIN: u8 = 99;
+    const MAX_SEC: u8 = 59;
+    const MAX_FRAME: u8 = 74;
+
+    pub fn new(min: u8, sec: u8, frame: u8) -> Result<Self, BlockAddressError> {
+        if min > Self::MAX_MIN || sec > Self::MAX_SEC || frame > Self::MAX_FRAME {
+            return Err(BlockAddressError::OutOfRange);
+        }
+
+        Ok(Self(min, sec, frame))
+    }
+
+    pub const fn new_unchecked(min: u8, sec: u8, frame: u8) -> Self {
+        assert!(min <= Self::MAX_MIN, "minutes out of range");
+        assert!(sec <= Self::MAX_SEC, "seconds out of range");
+        assert!(frame <= Self::MAX_FRAME, "frames out of range");
+
+        Self(min, sec, frame)
+    }
+
+    fn to_frames(self) -> u32 {
+        let Msf(m, s, f) = self;
+
+        m as u32 * FRAMES_PER_MINUTE as u32 + s as u32 * FRAMES_PER_SECOND as u32 + f as u32
+    }
+
+    fn from_frames(frames: u32) -> Self {
+        let min = frames / FRAMES_PER_MINUTE as u32;
+        let mut frames = frames - min * FRAMES_PER_MINUTE as u32;
+        let sec = frames / FRAMES_PER_SECOND as u32;
+        frames -= sec * FRAMES_PER_SECOND as u32;
+
+        Msf::new_unchecked(min as u8, sec as u8, frames as u8)
+    }
+}
+
+impl TryFrom<Lba> for Msf {
+    type Error = BlockAddressError;
+
+    /* The following comes strainght from the MMC-6 spec (Table 677) */
+    fn try_from(value: Lba) -> Result<Self, Self::Error> {
+        let raw_lba: i32 = value.into();
+
+        if (-150..=404849).contains(&raw_lba) {
+            let m = (raw_lba + PREGAP_OFFSET as i32) / (60 * 75);
+            let s = (raw_lba + PREGAP_OFFSET as i32 - m * 60 * 75) / 75;
+            let f = raw_lba + PREGAP_OFFSET as i32 - m * 60 * 75 - s * 75;
+
+            // We should be mathmatecially garunteed safe truncation here
+            Ok(Msf::new_unchecked(m as u8, s as u8, f as u8))
+        } else if (-451150..=-151).contains(&raw_lba) {
+            let m = (raw_lba + 450150) / (60 * 75);
+            let s = (raw_lba + 450150 - m * 60 * 75) / 75;
+            let f = raw_lba + 450150 - m * 60 * 75 - s * 75;
+
+            // We should be mathmatecially garunteed safe truncation here
+            Ok(Msf::new_unchecked(m as u8, s as u8, f as u8))
+        } else {
+            Err(BlockAddressError::OutOfRange)
+        }
+    }
+}
 
 impl fmt::Display for Msf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -186,29 +164,50 @@ impl fmt::Display for Msf {
     }
 }
 
-impl From<Lba> for Msf {
-    /* The below is adapted from libcdio which itself is adapted from cdparanoia code which claims
-     * to be straight from the MMC3 spec. */
-    fn from(value: Lba) -> Self {
-        let mut value = if value >= Lba::ZERO {
-            value.raw()
-        } else {
-            (value + Lba::MAX).raw()
-        };
-
-        let m = value / (i32::from(FRAMES_PER_MINUTE));
-        value -= m * i32::from(FRAMES_PER_MINUTE);
-        let s = value / i32::from(FRAMES_PER_SECOND);
-        value -= s * i32::from(FRAMES_PER_SECOND);
-        let f = value;
-
-        // Given a valid LBA, we should be mathematically garunteed safe truncation here
-        Msf(m as u8, s as u8, f as u8)
+impl PartialEq for Msf {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0 && self.1 == other.1 && self.2 == other.2
     }
 }
 
-impl From<Lsn> for Msf {
-    fn from(value: Lsn) -> Self {
-        Msf::from(Lba::from(value))
+impl Eq for Msf {}
+
+impl PartialOrd for Msf {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Msf {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let m = self.0.cmp(&other.0);
+        match m {
+            Ordering::Equal => {
+                let s = self.1.cmp(&other.1);
+                match s {
+                    Ordering::Equal => self.2.cmp(&other.2),
+                    _ => s,
+                }
+            }
+            _ => m,
+        }
+    }
+}
+
+impl Sub for Msf {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let mut lhs_frames = self.to_frames();
+        let rhs_frames = rhs.to_frames();
+
+        if lhs_frames < rhs_frames {
+            lhs_frames += Self::MAX_MIN as u32 * FRAMES_PER_MINUTE as u32
+                + Self::MAX_SEC as u32 * FRAMES_PER_SECOND as u32
+                + Self::MAX_FRAME as u32
+                + 1;
+        }
+
+        Msf::from_frames(lhs_frames - rhs_frames)
     }
 }
