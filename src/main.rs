@@ -3,7 +3,7 @@ use std::{fs::File, io, path::Path};
 use crate::{
     addressing::{Lba, Msf},
     constants::CHROMADISC_VERSION,
-    toc::{TOCData, read_toc},
+    toc::{FormattedTOC, read_toc},
 };
 
 mod addressing;
@@ -22,7 +22,7 @@ fn main() -> io::Result<()> {
         Ok(file) => file,
     };
 
-    let toc_cdb = TOCData::<Msf>::new(0, 2048, 0);
+    let toc_cdb = FormattedTOC::<Msf>::new(0, 2048, 0);
     let toc = read_toc(&file, toc_cdb)?;
 
     println!("ChromaDisc version {}", CHROMADISC_VERSION);
@@ -47,7 +47,7 @@ fn main() -> io::Result<()> {
             cur.start_addr,
             length,
             format!("{:6}", start_lba),
-            format!("{:6}", end_lba)
+            format!("{:6}", end_lba),
         );
     }
 

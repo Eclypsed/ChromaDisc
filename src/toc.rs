@@ -1,3 +1,4 @@
+use bitflags::bitflags;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::fs::File;
 use std::io;
@@ -33,11 +34,11 @@ impl TOCAddr for Msf {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 pub enum Format {
-    TOCData = 0b0000,
-    Session = 0b0001,
-    QSubCodeTOC = 0b0010,
-    QSubChannelPMA = 0b0011,
-    ATIPData = 0b0100,
+    FormattedTOC = 0b0000,
+    MultiSessionInfo = 0b0001,
+    RawTOC = 0b0010,
+    Pma = 0b0011,
+    Atip = 0b0100,
     CDText = 0b0101,
 }
 
@@ -55,19 +56,19 @@ pub trait TOCResponse: Sized {
 }
 
 #[derive(Debug)]
-pub struct TOCData<Addr: TOCAddr> {
+pub struct FormattedTOC<Addr: TOCAddr> {
     track: u8,
     allocation_len: u16,
     control: u8,
     _msf: PhantomData<Addr>,
 }
 
-impl<Addr> TOCData<Addr>
+impl<Addr> FormattedTOC<Addr>
 where
     Addr: TOCAddr,
 {
     pub fn new(track: u8, allocation_len: u16, control: u8) -> Self {
-        TOCData {
+        FormattedTOC {
             track,
             allocation_len,
             control,
@@ -76,7 +77,7 @@ where
     }
 }
 
-impl<Addr> Cdb<10> for TOCData<Addr>
+impl<Addr> Cdb<10> for FormattedTOC<Addr>
 where
     Addr: TOCAddr,
 {
@@ -96,11 +97,11 @@ where
     }
 }
 
-impl<Addr> TOCCdb for TOCData<Addr>
+impl<Addr> TOCCdb for FormattedTOC<Addr>
 where
     Addr: TOCAddr,
 {
-    const FORMAT: Format = Format::TOCData;
+    const FORMAT: Format = Format::FormattedTOC;
     const MSF_FLAG: bool = Addr::MSF_FLAG;
 
     type ResponseData = Toc<Addr>;
@@ -110,12 +111,51 @@ where
     }
 }
 
+bitflags! {
+    #[repr(transparent)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Control: u8 {
+        /// If set and track is audio, the track has 4 channels, otherwise 2. Not set when track is data.
+        ///
+        /// # Examples
+        ///
+        /// - 00xx = 2 audio channels
+        /// - 10xx = 4 audio channels
+        const FOUR_CHANNELS = 1 << 3;
+        /// If set, track is data, otherwise audio.
+        ///
+        /// # Examples
+        ///
+        /// - x0xx = Audio Track
+        /// - 01xx = Data Track
+        const IS_DATA = 1 << 2;
+        /// If set digital copy is permitted, otherwise prohibited.
+        ///
+        /// # Examples
+        ///
+        /// - xx0x = Digital copy prohibited
+        /// - xx1x = Digital copy permitted
+        const COPY_PERMITTED = 1 << 1;
+        /// If set and track is audio, pre-emphasis is enabled. If set and track is data, track is recorded incrementally, otherwise uninterrupted.
+        ///
+        /// # Examples
+        ///
+        /// - x0x0 = Audio without pre-emphasis
+        /// - x0x1 = Audio with pre-emphasis
+        /// - 01x0 = Data track recorded uninterrupted
+        /// - 01x1 = Data track recorded incrementally
+        const PREEMPHASIS_OR_INCREMENTAL = 1 << 0;
+    }
+}
+
 #[derive(Debug)]
 pub struct TrackDescriptor<Addr: TOCAddr> {
+    /// The type of information encoded in the Q Sub-channel of the block where this TOC entry was found
     #[allow(dead_code)]
     pub adr: u8,
+    /// Indicates the attributes of the track.
     #[allow(dead_code)]
-    pub control: u8,
+    pub control: Control,
     pub number: u8,
     pub start_addr: Addr,
 }
@@ -150,8 +190,8 @@ where
         let mut track_descriptors: Vec<TrackDescriptor<Addr>> = vec![];
 
         for descriptor in bytes[4..].chunks_exact(8) {
-            let adr = descriptor[1] & 0xF0;
-            let control = descriptor[1] & 0x0F;
+            let adr = (descriptor[1] & 0xF0) >> 4;
+            let control = Control::from_bits_truncate(descriptor[1] & 0x0F);
             let track_num = descriptor[2];
 
             let start_addr: Addr = Addr::from_be_bytes(&descriptor[4..=7].try_into().unwrap());
@@ -177,7 +217,7 @@ pub fn read_toc<Cdb: TOCCdb>(file: &File, cdb: Cdb) -> io::Result<Cdb::ResponseD
     let mut cdb_bytes = cdb.to_bytes();
 
     let mut data = vec![0u8; cdb.allocation_len().into()];
-    let mut sense = [0u8; 32];
+    let mut sense = [0u8; 64];
 
     let mut hdr = SgIoHeader::new(
         DxferDirection::FromDev,
