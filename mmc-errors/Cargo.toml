@@ -1,0 +1,11 @@
+[package]
+name = "mmc-errors"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+proc-macro2 = "1.0.104"
+quote = "1.0.42"
+syn = { version = "2.0.112", features = ["full"] }
+[lib]
+proc-macro = true

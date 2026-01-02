@@ -3,11 +3,10 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::fs::File;
 use std::io;
 use std::marker::PhantomData;
-use std::os::fd::AsRawFd;
 
 use crate::addressing::{Address, Lba, Msf};
 use crate::cdb::Cdb;
-use crate::sgio::{DxferDirection, SG_INFO_CHECK, SgIoHeader, ioctl_sg_io};
+use crate::sgio::{DxferDirection, run_sgio};
 
 pub trait TOCAddr: Address {
     const MSF_FLAG: bool;
@@ -111,6 +110,14 @@ where
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum Adr {
+    Mode1Q = 0b0001,
+    Mode2Q = 0b0010,
+    Mode3Q = 0b0011,
+}
+
 bitflags! {
     #[repr(transparent)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -152,7 +159,7 @@ bitflags! {
 pub struct TrackDescriptor<Addr: TOCAddr> {
     /// The type of information encoded in the Q Sub-channel of the block where this TOC entry was found
     #[allow(dead_code)]
-    pub adr: u8,
+    pub adr: Adr,
     /// Indicates the attributes of the track.
     #[allow(dead_code)]
     pub control: Control,
@@ -190,7 +197,8 @@ where
         let mut track_descriptors: Vec<TrackDescriptor<Addr>> = vec![];
 
         for descriptor in bytes[4..].chunks_exact(8) {
-            let adr = (descriptor[1] & 0xF0) >> 4;
+            let adr = Adr::try_from_primitive((descriptor[1] & 0xF0) >> 4)
+                .expect("Encountered invalid ADR");
             let control = Control::from_bits_truncate(descriptor[1] & 0x0F);
             let track_num = descriptor[2];
 
@@ -217,69 +225,10 @@ pub fn read_toc<Cdb: TOCCdb>(file: &File, cdb: Cdb) -> io::Result<Cdb::ResponseD
     let mut cdb_bytes = cdb.to_bytes();
 
     let mut data = vec![0u8; cdb.allocation_len().into()];
-    let mut sense = [0u8; 64];
 
-    let mut hdr = SgIoHeader::new(
-        DxferDirection::FromDev,
-        &mut cdb_bytes,
-        &mut data,
-        &mut sense,
-    );
+    let received = run_sgio(file, DxferDirection::FromDev, &mut cdb_bytes, &mut data)
+        .map_err(io::Error::other)?;
+    data.truncate(received);
 
-    unsafe {
-        ioctl_sg_io(file.as_raw_fd(), &mut hdr)?;
-    }
-
-    if hdr.info & SG_INFO_CHECK != 0 {
-        return Err(io::Error::other("SG_IO check failed"));
-    }
-
-    // TODO: Change error checking implementation. This section is temporarily borrowed from:
-    // https://github.com/bloomca/rust-cd-da-reader
-
-    // Check SCSI status
-    if hdr.status != 0 {
-        let error_msg = match hdr.status {
-            0x02 => "Check Condition",
-            0x08 => "Busy",
-            0x18 => "Reservation Conflict",
-            0x28 => "Task Set Full",
-            0x30 => "ACA Active",
-            0x40 => "Task Aborted",
-            _ => "Unknown SCSI error",
-        };
-
-        // If there's sense data, parse it for more details
-        if hdr.sb_len_wr > 0 {
-            let sense_key = sense[2] & 0x0F;
-            let asc = sense[12]; // Additional Sense Code
-            let ascq = sense[13]; // Additional Sense Code Qualifier
-
-            return Err(io::Error::other(format!(
-                "SCSI error: {} (status=0x{:02x}, sense_key=0x{:x}, asc=0x{:02x}, ascq=0x{:02x})",
-                error_msg, hdr.status, sense_key, asc, ascq
-            )));
-        } else {
-            return Err(io::Error::other(format!("SCSI error: {}", error_msg)));
-        }
-    }
-
-    // From the SCSI HOWTO: "In practice it only reports underruns (i.e. positive number) as data
-    // overruns should never happen"
-    let residual: usize = hdr.resid.try_into().map_err(|_| {
-        io::Error::other(format!(
-            "SCSI error: Received invalid residual {}",
-            hdr.resid
-        ))
-    })?;
-
-    if data.len() <= residual {
-        return Err(io::Error::other(format!(
-            "SCSI error: Received residual ({}) >= allocation length ({})",
-            residual,
-            cdb.allocation_len()
-        )));
-    }
-
-    Cdb::ResponseData::parse(&data[0..(data.len() - residual)])
+    Cdb::ResponseData::parse(&data)
 }

@@ -10,6 +10,8 @@ mod addressing;
 mod cdb;
 mod cdio;
 mod constants;
+mod error;
+mod read_cd;
 mod sgio;
 mod toc;
 

@@ -1,3 +1,5 @@
+// This module is just for test code to compare results with my implementation
+
 use libcdio_sys::{
     CDIO_INVALID_LSN, cdio_destroy, cdio_free_device_list, cdio_get_devices,
     cdio_get_first_track_num, cdio_get_num_tracks, cdio_get_track_lsn, cdio_open,
