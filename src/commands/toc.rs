@@ -1,12 +1,21 @@
 use bitflags::bitflags;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use std::fs::File;
-use std::io;
+use std::fmt::Display;
 use std::marker::PhantomData;
+use std::ops::Sub;
+use thiserror::Error;
 
 use crate::addressing::{Address, Lba, Msf};
-use crate::cdb::Cdb;
-use crate::sgio::{DxferDirection, run_sgio};
+
+use super::Command;
+
+const TOC_HEADER_LEN: usize = 4;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Received {0} bytes of READ TOC response, expected at least {min}", min = TOC_HEADER_LEN)]
+    IncompleteHeader(usize),
+}
 
 pub trait TOCAddr: Address {
     const MSF_FLAG: bool;
@@ -41,17 +50,9 @@ pub enum Format {
     CDText = 0b0101,
 }
 
-pub trait TOCCdb: Cdb<10> {
+pub trait TOCCommand: Command<10> {
     const FORMAT: Format;
     const MSF_FLAG: bool;
-
-    type ResponseData: TOCResponse;
-
-    fn allocation_len(&self) -> u16;
-}
-
-pub trait TOCResponse: Sized {
-    fn parse(bytes: &[u8]) -> io::Result<Self>;
 }
 
 #[derive(Debug)]
@@ -76,13 +77,15 @@ where
     }
 }
 
-impl<Addr> Cdb<10> for FormattedTOC<Addr>
+impl<Addr> Command<10> for FormattedTOC<Addr>
 where
     Addr: TOCAddr,
 {
     const OP_CODE: u8 = 0x43;
 
-    fn to_bytes(&self) -> [u8; 10] {
+    type Response = Toc<Addr>;
+
+    fn as_cdb(&self) -> [u8; 10] {
         let mut bytes = [0u8; 10];
 
         bytes[0] = Self::OP_CODE;
@@ -94,20 +97,18 @@ where
 
         bytes
     }
+
+    fn allocation_len(&self) -> usize {
+        self.allocation_len.into()
+    }
 }
 
-impl<Addr> TOCCdb for FormattedTOC<Addr>
+impl<Addr> TOCCommand for FormattedTOC<Addr>
 where
     Addr: TOCAddr,
 {
     const FORMAT: Format = Format::FormattedTOC;
     const MSF_FLAG: bool = Addr::MSF_FLAG;
-
-    type ResponseData = Toc<Addr>;
-
-    fn allocation_len(&self) -> u16 {
-        self.allocation_len
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
@@ -178,25 +179,24 @@ pub struct Toc<Addr: TOCAddr> {
     pub track_descriptors: Vec<TrackDescriptor<Addr>>,
 }
 
-impl<Addr> TOCResponse for Toc<Addr>
+impl<Addr> TryFrom<Vec<u8>> for Toc<Addr>
 where
     Addr: TOCAddr,
 {
-    fn parse(bytes: &[u8]) -> io::Result<Self> {
-        if bytes.len() < 4 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "TOC must be at least four bytes long",
-            ));
+    type Error = Error;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        if value.len() < 4 {
+            return Err(Error::IncompleteHeader(value.len()));
         }
 
-        let length = u16::from_be_bytes([bytes[0], bytes[1]]);
-        let first_track_num = bytes[2];
-        let last_track_num = bytes[3];
+        let length = u16::from_be_bytes([value[0], value[1]]);
+        let first_track_num = value[2];
+        let last_track_num = value[3];
 
         let mut track_descriptors: Vec<TrackDescriptor<Addr>> = vec![];
 
-        for descriptor in bytes[4..].chunks_exact(8) {
+        for descriptor in value[4..].chunks_exact(8) {
             let adr = Adr::try_from_primitive((descriptor[1] & 0xF0) >> 4)
                 .expect("Encountered invalid ADR");
             let control = Control::from_bits_truncate(descriptor[1] & 0x0F);
@@ -221,14 +221,38 @@ where
     }
 }
 
-pub fn read_toc<Cdb: TOCCdb>(file: &File, cdb: Cdb) -> io::Result<Cdb::ResponseData> {
-    let mut cdb_bytes = cdb.to_bytes();
+impl<Addr> Display for Toc<Addr>
+where
+    Addr: TOCAddr + Sub<Output = Addr> + Display,
+    Lba: From<Addr> + From<i32>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "TOC of the disc")?;
+        writeln!(
+            f,
+            "\t {:^5} | {:^8} | {:^8} | {:^11} | {:^9} ",
+            "Track", "Start", "Length", "Start (LBA)", "End (LBA)"
+        )?;
+        write!(f, "\t{}", "-".repeat(55))?;
 
-    let mut data = vec![0u8; cdb.allocation_len().into()];
+        for window in self.track_descriptors.windows(2) {
+            let (cur, next) = (&window[0], &window[1]);
 
-    let received = run_sgio(file, DxferDirection::FromDev, &mut cdb_bytes, &mut data)
-        .map_err(io::Error::other)?;
-    data.truncate(received);
+            let start_lba = Lba::from(cur.start_addr);
+            let end_lba = Lba::from(next.start_addr) - Lba::from(1);
+            let length = next.start_addr - cur.start_addr;
 
-    Cdb::ResponseData::parse(&data)
+            write!(
+                f,
+                "\n\t {:^5} | {:^8} | {:^8} | {:^11} | {:^9} ",
+                format!("{:2}", cur.number),
+                cur.start_addr,
+                length,
+                format!("{:6}", start_lba),
+                format!("{:6}", end_lba),
+            )?;
+        }
+
+        Ok(())
+    }
 }

@@ -1,21 +1,24 @@
-use std::{fs::File, io, path::Path};
+use std::{fs::File, path::Path};
 
 use crate::{
-    addressing::{Lba, Msf},
+    addressing::Msf,
+    commands::{
+        get_configuration::{GetConfiguration, GetConfigurationResponse, RTField},
+        toc::{FormattedTOC, Toc},
+    },
     constants::CHROMADISC_VERSION,
-    toc::{FormattedTOC, read_toc},
+    sgio::{DxferDirection, run_sgio},
 };
 
 mod addressing;
-mod cdb;
 mod cdio;
+mod commands;
 mod constants;
 mod error;
-mod read_cd;
+mod features;
 mod sgio;
-mod toc;
 
-fn main() -> io::Result<()> {
+fn main() {
     let device = Path::new("/dev/cdrom");
     let display = device.display();
 
@@ -24,34 +27,32 @@ fn main() -> io::Result<()> {
         Ok(file) => file,
     };
 
-    let toc_cdb = FormattedTOC::<Msf>::new(0, 2048, 0);
-    let toc = read_toc(&file, toc_cdb)?;
-
     println!("ChromaDisc version {}", CHROMADISC_VERSION);
     println!();
-    println!("TOC of the disc");
-    println!(
-        "\t {:^5} | {:^8} | {:^8} | {:^11} | {:^9} ",
-        "Track", "Start", "Length", "Start (LBA)", "End (LBA)"
-    );
-    println!("\t{}", "-".repeat(55));
 
-    for window in toc.track_descriptors.windows(2) {
-        let (cur, next) = (&window[0], &window[1]);
+    let toc_cmd = FormattedTOC::<Msf>::new(0, 2048, 0);
+    let toc_data = run_sgio(&file, toc_cmd, DxferDirection::FromDev).unwrap();
+    let toc = <Toc<Msf> as TryFrom<Vec<u8>>>::try_from(toc_data).unwrap();
 
-        let start_lba = Lba::from(cur.start_addr);
-        let end_lba = Lba::from(next.start_addr) - Lba::from(1);
-        let length = next.start_addr - cur.start_addr;
+    println!("{toc}");
+    println!();
 
-        println!(
-            "\t {:^5} | {:^8} | {:^8} | {:^11} | {:^9} ",
-            format!("{:2}", cur.number),
-            cur.start_addr,
-            length,
-            format!("{:6}", start_lba),
-            format!("{:6}", end_lba),
-        );
+    // let start = Lba::from(14300);
+    // let sector_bytes = read_audio_range(&file, start, u24!(1)).unwrap();
+    //
+    // for byte in sector_bytes {
+    //     print!("{:02X} ", byte);
+    // }
+
+    let config_cmd = GetConfiguration::new(RTField::All, 0, 8096, 0.into());
+    let res: GetConfigurationResponse = run_sgio(&file, config_cmd, DxferDirection::FromDev)
+        .unwrap()
+        .try_into()
+        .unwrap();
+
+    println!("Current profile: {:?}", res.current_profile);
+
+    for desc in res.descriptors {
+        println!("Feature: {:#?}", desc.feature_data)
     }
-
-    Ok(())
 }

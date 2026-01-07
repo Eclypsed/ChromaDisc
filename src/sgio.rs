@@ -9,7 +9,7 @@ use nix::ioctl_read_bad;
 use num_enum::TryFromPrimitive;
 use thiserror::Error;
 
-use crate::error::MMCError;
+use crate::{commands::Command, error::MMCError};
 
 #[derive(Debug, Error)]
 pub enum SCSIError {
@@ -55,10 +55,10 @@ pub enum DxferDirection {
     Unknown = -5,
 }
 
-#[derive(Debug, PartialEq, Eq, TryFromPrimitive)]
-#[repr(u8)]
 /// Linux SCSI status codes used for comparison with `masked_status`, which strips vendor
 /// information and shifts right one position. `masked_status == ((status & 0x3e) >> 1)`
+#[derive(Debug, PartialEq, Eq, TryFromPrimitive)]
+#[repr(u8)]
 pub enum StatusCondition {
     Good = 0x00,
     CheckCondition = 0x01,
@@ -101,18 +101,19 @@ struct SgIoHeader {
 
 ioctl_read_bad!(ioctl_sg_io, SG_IO, SgIoHeader);
 
-pub fn run_sgio(
+pub fn run_sgio<Cmd: Command<CMD_LEN>, const CMD_LEN: usize>(
     file: &File,
+    cmd: Cmd,
     dxfer_direction: DxferDirection,
-    cdb: &mut [u8],
-    data: &mut [u8],
-) -> Result<usize, SCSIError> {
+) -> Result<Vec<u8>, SCSIError> {
     const SENSE_BUF_SIZE: u8 = 64;
 
     let mut sense = [0u8; SENSE_BUF_SIZE as usize];
 
-    let cdb_len = cdb.len();
+    let mut cdb = cmd.as_cdb();
+    let mut data = vec![0u8; cmd.allocation_len()];
 
+    let cdb_len = cdb.len();
     let Ok(cmd_len) = u8::try_from(cdb_len) else {
         return Err(SCSIError::InvalidCDB(cdb_len));
     };
@@ -149,7 +150,7 @@ pub fn run_sgio(
     };
 
     unsafe {
-        ioctl_sg_io(file.as_raw_fd(), &mut header).map_err(SCSIError::IOCTLFailed)?;
+        ioctl_sg_io(file.as_raw_fd(), &mut header)?;
     }
 
     let Ok(status) = StatusCondition::try_from_primitive(header.masked_status) else {
@@ -165,7 +166,8 @@ pub fn run_sgio(
         if let Ok(residual) = usize::try_from(header.resid)
             && data_len > residual
         {
-            return Ok(data_len - residual);
+            data.truncate(data_len - residual);
+            return Ok(data);
         };
 
         return Err(SCSIError::InvalidResidual {
