@@ -1,10 +1,18 @@
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
 
-use super::{FeatureCode, FeatureData, FeatureDataError};
+use super::{Feature, FeatureCode, FeatureHeader};
+
+const REQUIRED_VERSION: u8 = 0b0000;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("Encountered invalid version `0b{0:04b}`, Feature 'Profile List' requires version `0b{ver:04b}`", ver = REQUIRED_VERSION)]
+    InvalidVersion(u8),
+    #[error("'Persistent' must be true for Feature 'Profile List'")]
+    PersistentRequired,
+    #[error("'Current' must be true for Feature 'Profile List'")]
+    CurrentRequired,
     #[error("Invalid profile number: 0x{0:04X}")]
     InvalidProfile(u16),
 }
@@ -12,19 +20,36 @@ pub enum Error {
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ProfileList {
-    profile_descriptors: Vec<ProfileDescriptor>,
+    pub header: FeatureHeader,
+    /// The list of all profile descriptors in the order of preferred operation.
+    pub profile_descriptors: Vec<ProfileDescriptor>,
 }
 
-impl FeatureData for ProfileList {
+impl Feature<&[u8]> for ProfileList {
     const FEATURE_CODE: FeatureCode = FeatureCode::ProfileList;
 
-    fn parse(bytes: &[u8]) -> Result<Self, FeatureDataError> {
+    type Error = Error;
+
+    fn parse(header: FeatureHeader, bytes: &[u8]) -> Result<Self, Self::Error> {
+        if header.version != REQUIRED_VERSION {
+            return Err(Error::InvalidVersion(header.version));
+        }
+
+        if !header.persistent {
+            return Err(Error::PersistentRequired);
+        }
+
+        if !header.current {
+            return Err(Error::CurrentRequired);
+        }
+
         let profile_descriptors = bytes
             .chunks_exact(4)
             .map(|b| ProfileDescriptor::try_from(<&[u8; 4]>::try_from(b).unwrap()))
             .collect::<Result<Vec<ProfileDescriptor>, _>>()?;
 
         Ok(ProfileList {
+            header,
             profile_descriptors,
         })
     }
@@ -33,7 +58,10 @@ impl FeatureData for ProfileList {
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ProfileDescriptor {
+    /// The identity of a Profile to which the Drive conforms.
     profile_number: Profile,
+    /// When true, indicates that this Profile is currently active. If no medium is present then no
+    /// descriptor should be active.
     current_profile: bool,
 }
 

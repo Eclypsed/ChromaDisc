@@ -1,13 +1,17 @@
-use std::{fs::File, path::Path};
+use indicatif::ProgressBar;
+use std::{fs::File, path::Path, time::Instant};
+
+use i24::U24;
 
 use crate::{
-    addressing::Msf,
+    addressing::Lba,
     commands::{
-        get_configuration::{GetConfiguration, GetConfigurationResponse, RTField},
-        toc::{FormattedTOC, Toc},
+        Command,
+        read_cd::SectorReader,
+        read_track_info::{AddressType, ReadTrackInfo, ReadTrackInfoResponse},
+        toc::FormattedTOC,
     },
     constants::CHROMADISC_VERSION,
-    sgio::{DxferDirection, run_sgio},
 };
 
 mod addressing;
@@ -20,39 +24,49 @@ mod sgio;
 
 fn main() {
     let device = Path::new("/dev/cdrom");
-    let display = device.display();
 
     let file = match File::open(device) {
-        Err(err) => panic!("Failed to open {}: {}", display, err),
+        Err(err) => panic!("Failed to open {}: {}", device.display(), err),
         Ok(file) => file,
     };
 
     println!("ChromaDisc version {}", CHROMADISC_VERSION);
     println!();
 
-    let toc_cmd = FormattedTOC::<Msf>::new(0, 2048, 0);
-    let toc_data = run_sgio(&file, toc_cmd, DxferDirection::FromDev).unwrap();
-    let toc = <Toc<Msf> as TryFrom<Vec<u8>>>::try_from(toc_data).unwrap();
+    let toc = FormattedTOC::<Lba>::new(0, 2048, 0).execute(&file).unwrap();
 
-    println!("{toc}");
-    println!();
-
-    // let start = Lba::from(14300);
-    // let sector_bytes = read_audio_range(&file, start, u24!(1)).unwrap();
-    //
-    // for byte in sector_bytes {
-    //     print!("{:02X} ", byte);
-    // }
-
-    let config_cmd = GetConfiguration::new(RTField::All, 0, 8096, 0.into());
-    let res: GetConfigurationResponse = run_sgio(&file, config_cmd, DxferDirection::FromDev)
-        .unwrap()
-        .try_into()
+    let track_info: Vec<ReadTrackInfoResponse> = (toc.first_track_num..=toc.last_track_num)
+        .map(|n| ReadTrackInfo::new(false, AddressType::LTN, n.into(), 0.into()).execute(&file))
+        .collect::<Result<Vec<ReadTrackInfoResponse>, _>>()
         .unwrap();
 
-    println!("Current profile: {:?}", res.current_profile);
+    for track in track_info {
+        let start = track.logical_track_start_addr;
+        let end = track.logical_track_start_addr + track.logical_track_size - 1;
 
-    for desc in res.descriptors {
-        println!("Feature: {:#?}", desc.feature_data)
+        let sectors = U24::try_from_u32(end - start).unwrap();
+
+        let bar = ProgressBar::new(sectors.to_u32().into());
+
+        let start_lba = Lba::try_from(i32::try_from(start).unwrap()).unwrap();
+        let reader = SectorReader::new(&file, start_lba, sectors);
+
+        println!("Reading Track {}", track.logical_track_number);
+        let now = Instant::now();
+
+        for res in reader {
+            let (_, remain) = res.unwrap();
+            let read = sectors - remain;
+            bar.set_position(read.into());
+        }
+
+        let elapsed_time = now.elapsed();
+
+        bar.finish();
+        println!(
+            "Reading Track {} took {:.3} seconds",
+            track.logical_track_number,
+            elapsed_time.as_secs_f32()
+        )
     }
 }

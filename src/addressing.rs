@@ -1,4 +1,8 @@
-use std::{cmp::Ordering, fmt, ops::Sub};
+use std::{
+    cmp::Ordering,
+    fmt::{self, Display},
+    ops::Sub,
+};
 
 use derive_more::{
     Add, AddAssign, Display, Div, DivAssign, Into, Mul, MulAssign, Neg, Sub, SubAssign,
@@ -11,12 +15,15 @@ mod sealed {
     pub trait Sealed {}
 }
 
-pub trait Address: sealed::Sealed + Copy {}
+pub trait Address: sealed::Sealed + Copy + Display {
+    const MIN: Self;
+    const MAX: Self;
+}
 
 #[derive(Error, Debug)]
-pub enum BlockAddressError {
-    #[error("Block address out of range")]
-    OutOfRange,
+pub enum AddressError<Addr: Address> {
+    #[error("Address {0} out of range: {min}..={max}", min = Addr::MIN, max = Addr::MAX)]
+    OutOfRange(Addr),
 }
 
 /// Newtype representing a Logical Block Address (LBA)
@@ -45,18 +52,59 @@ pub enum BlockAddressError {
 )]
 pub struct Lba(i32);
 
+/// Creates an LBA from a constant expression. Will result in a compile error if the expression is
+/// outside the valid range for LBAs.
+macro_rules! lba {
+    ($e:expr) => {
+        const {
+            match $crate::Lba::try_from_i32($e) {
+                Ok(v) => v,
+                Err(_) => panic!("LBA must be in range -451150..=404849"),
+            }
+        }
+    };
+}
+pub(crate) use lba;
+
 impl Lba {
-    /// The logical block at addres 0.
-    pub const ZERO: Lba = Lba(0);
+    const MAX_RAW: i32 = 404849;
+    const MIN_RAW: i32 = -451150;
+
+    const fn in_range(value: &i32) -> bool {
+        Self::MIN_RAW <= *value && *value <= Self::MAX_RAW
+    }
+
+    const fn new_unchecked(value: i32) -> Self {
+        assert!(
+            Self::in_range(&value),
+            "LBA must be in range -451150..=404849"
+        );
+
+        Self(value)
+    }
+
+    pub const fn try_from_i32(value: i32) -> Result<Self, AddressError<Self>> {
+        if Self::in_range(&value) {
+            return Ok(Self::new_unchecked(value));
+        }
+
+        Err(AddressError::OutOfRange(Self(value)))
+    }
 }
 
 impl sealed::Sealed for Lba {}
 
-impl Address for Lba {}
+impl Address for Lba {
+    const MIN: Self = lba!(Self::MIN_RAW);
+    const MAX: Self = lba!(Self::MAX_RAW);
+}
 
-impl From<i32> for Lba {
-    fn from(value: i32) -> Self {
-        Self(value)
+impl TryFrom<i32> for Lba {
+    type Error = AddressError<Lba>;
+
+    #[inline]
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Self::try_from_i32(value)
     }
 }
 
@@ -67,11 +115,11 @@ impl From<Msf> for Lba {
 
         // Range from MMC-6: 00:00:00 <= MSF <= 89:59:74
         if value <= Msf::new_unchecked(89, 59, 74) {
-            (offset_lba - PREGAP_OFFSET as i32).into()
+            Self::new_unchecked(offset_lba - PREGAP_OFFSET as i32)
         }
         // Range from MMC-6: 90:00:00 <= MSF <= 99:59:74
         else {
-            (offset_lba - 450150).into()
+            Self::new_unchecked(offset_lba - 450150)
         }
     }
 }
@@ -89,7 +137,10 @@ pub struct Msf(u8, u8, u8);
 
 impl sealed::Sealed for Msf {}
 
-impl Address for Msf {}
+impl Address for Msf {
+    const MIN: Self = Self::new_unchecked(0, 0, 0);
+    const MAX: Self = Self::new_unchecked(Self::MAX_MIN, Self::MAX_SEC, Self::MAX_FRAME);
+}
 
 impl Msf {
     // Idk what is going on with the minute field of MSFs. At the start of the MMC-6 spec it is
@@ -99,15 +150,15 @@ impl Msf {
     const MAX_SEC: u8 = 59;
     const MAX_FRAME: u8 = 74;
 
-    pub fn new(min: u8, sec: u8, frame: u8) -> Result<Self, BlockAddressError> {
+    pub fn new(min: u8, sec: u8, frame: u8) -> Result<Self, AddressError<Msf>> {
         if min > Self::MAX_MIN || sec > Self::MAX_SEC || frame > Self::MAX_FRAME {
-            return Err(BlockAddressError::OutOfRange);
+            return Err(AddressError::OutOfRange(Self(min, sec, frame)));
         }
 
-        Ok(Self(min, sec, frame))
+        Ok(Self::new_unchecked(min, sec, frame))
     }
 
-    pub const fn new_unchecked(min: u8, sec: u8, frame: u8) -> Self {
+    const fn new_unchecked(min: u8, sec: u8, frame: u8) -> Self {
         assert!(min <= Self::MAX_MIN, "minutes out of range");
         assert!(sec <= Self::MAX_SEC, "seconds out of range");
         assert!(frame <= Self::MAX_FRAME, "frames out of range");
@@ -131,11 +182,9 @@ impl Msf {
     }
 }
 
-impl TryFrom<Lba> for Msf {
-    type Error = BlockAddressError;
-
+impl From<Lba> for Msf {
     /* The following comes strainght from the MMC-6 spec (Table 677) */
-    fn try_from(value: Lba) -> Result<Self, Self::Error> {
+    fn from(value: Lba) -> Self {
         let raw_lba: i32 = value.into();
 
         if (-150..=404849).contains(&raw_lba) {
@@ -144,16 +193,14 @@ impl TryFrom<Lba> for Msf {
             let f = raw_lba + PREGAP_OFFSET as i32 - m * 60 * 75 - s * 75;
 
             // We should be mathmatecially garunteed safe truncation here
-            Ok(Msf::new_unchecked(m as u8, s as u8, f as u8))
-        } else if (-451150..=-151).contains(&raw_lba) {
+            Msf::new_unchecked(m as u8, s as u8, f as u8)
+        } else {
             let m = (raw_lba + 450150) / (60 * 75);
             let s = (raw_lba + 450150 - m * 60 * 75) / 75;
             let f = raw_lba + 450150 - m * 60 * 75 - s * 75;
 
             // We should be mathmatecially garunteed safe truncation here
-            Ok(Msf::new_unchecked(m as u8, s as u8, f as u8))
-        } else {
-            Err(BlockAddressError::OutOfRange)
+            Msf::new_unchecked(m as u8, s as u8, f as u8)
         }
     }
 }

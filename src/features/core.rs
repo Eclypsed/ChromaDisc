@@ -1,13 +1,20 @@
 use thiserror::Error;
 
-use super::{FeatureCode, FeatureData, FeatureDataError};
+use super::{Feature, FeatureCode, FeatureHeader};
 
-const DATA_LEN: usize = 8;
+const REQUIRED_VERSION: u8 = 0b0010;
+const REQUIRED_ADD_LEN: usize = 8;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Received {received} bytes of Core Feature data, expected {expected}", expected = DATA_LEN)]
-    LengthMismatch { received: usize },
+    #[error("Encountered invalid version `0b{0:04b}`, Feature 'Core' requires version `0b{ver:04b}`", ver = REQUIRED_VERSION)]
+    InvalidVersion(u8),
+    #[error("'Persistent' must be true for Feature 'Core'")]
+    PersistentRequired,
+    #[error("'Current' must be true for Feature 'Core'")]
+    CurrentRequired,
+    #[error("Encountered invalid Additional Length `{0}`, Feature 'CORE' requires version `{len}`", len = REQUIRED_ADD_LEN)]
+    InvalidAdditionalLength(u8),
     #[error("Unknown Physical Interface Standard: 0x{0:08X}")]
     UnknownPhysicalInterfaceStandard(u32),
 }
@@ -15,34 +22,53 @@ pub enum Error {
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct Core {
-    physical_interface_standard: PhysicalInterfaceStandard,
-    inq2: bool,
+    pub header: FeatureHeader,
+    /// The field that specifies what kind of physical interface the drive is using.
+    pub physical_interface_standard: PhysicalInterfaceStandard,
+    /// Permits the Drive to indicate support for certain features of the INQUIRY command. If INQ2
+    /// is true, the Drive shall support validation of EVPD, Page Code, and the 16-bit Allocation
+    /// Lenght fields as described in [SPC-3].
+    pub inq2: bool,
+    /// The Device Busy Event. Should be set to true; false is legacy though may still be reported.
+    pub dbe: bool,
 }
 
-impl FeatureData for Core {
+impl Feature<&[u8; 8]> for Core {
     const FEATURE_CODE: FeatureCode = FeatureCode::Core;
 
-    fn parse(bytes: &[u8]) -> Result<Self, FeatureDataError> {
+    type Error = Error;
+
+    fn parse(header: FeatureHeader, bytes: &[u8; 8]) -> Result<Self, Self::Error> {
         const INQ2_MASK: u8 = 0b00000010;
+        const DBE_MASK: u8 = 0b00000001;
 
-        let num_bytes = bytes.len();
+        if header.version != REQUIRED_VERSION {
+            return Err(Error::InvalidVersion(header.version));
+        }
 
-        if num_bytes != DATA_LEN {
-            return Err(Error::LengthMismatch {
-                received: num_bytes,
-            }
-            .into());
+        if !header.persistent {
+            return Err(Error::PersistentRequired);
+        }
+
+        if !header.current {
+            return Err(Error::CurrentRequired);
         }
 
         let physical_interface_standard =
             PhysicalInterfaceStandard::try_from(u32::from_be_bytes([
                 bytes[0], bytes[1], bytes[2], bytes[3],
             ]))?;
+
         let inq2 = (bytes[4] & INQ2_MASK) >> 1 != 0;
+        // Not doing a check for DBE because even tho DBE = 0 is legacy some drives may still
+        // report it. Legacy features are not errors
+        let dbe = (bytes[4] & DBE_MASK) != 0;
 
         Ok(Core {
+            header,
             physical_interface_standard,
             inq2,
+            dbe,
         })
     }
 }

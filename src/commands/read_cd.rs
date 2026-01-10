@@ -6,7 +6,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
 
 use crate::{
-    addressing::Lba,
+    addressing::{Lba, lba},
     sgio::{self, DxferDirection, run_sgio},
 };
 
@@ -137,13 +137,60 @@ impl ReadCD {
         Self {
             sector_type: SectorType::AllTypes,
             dap: false,
-            starting_lba: Lba::ZERO,
-            transfer_length: u24!(0),
+            starting_lba: lba!(0),
+            transfer_length: U24::ZERO,
             main_channel: MainChannelFlags::empty(),
             c2_error_info: C2ErrorCode::None,
             sub_channel: SubChannelSelection::None,
             control: 0.into(),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct SectorReader<'a> {
+    file: &'a File,
+    remaining: U24,
+    command: ReadCD,
+}
+
+impl<'a> SectorReader<'a> {
+    // 2352 * 27 = 63531 ~ 64 KBs common CD firmware limit
+    const MAX_SECTORS_PER: U24 = u24!(27);
+
+    pub fn new(file: &'a File, start: Lba, sectors: U24) -> Self {
+        let mut command = ReadCD::new();
+        command.sector_type = SectorType::AllTypes;
+        command.starting_lba = start;
+        command.main_channel |= MainChannelFlags::USER_DATA;
+
+        Self {
+            file,
+            remaining: sectors,
+            command,
+        }
+    }
+}
+
+impl<'a> Iterator for SectorReader<'a> {
+    type Item = Result<(Vec<u8>, U24), sgio::SCSIError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == U24::ZERO {
+            return None;
+        }
+
+        let sectors_to_read = cmp::min(self.remaining, Self::MAX_SECTORS_PER);
+
+        self.command.transfer_length = sectors_to_read;
+
+        let data = run_sgio(self.file, self.command, DxferDirection::FromDev);
+
+        self.command.starting_lba +=
+            Lba::try_from(i32::try_from(sectors_to_read.to_u32()).unwrap()).unwrap();
+        self.remaining -= sectors_to_read;
+
+        Some(data.map(|v| (v, self.remaining)))
     }
 }
 
@@ -158,7 +205,7 @@ pub fn read_audio_range(file: &File, start: Lba, sectors: U24) -> Result<Vec<u8>
     let mut start = start;
 
     let mut command = ReadCD::new();
-    command.sector_type = SectorType::CdDa;
+    command.sector_type = SectorType::AllTypes;
     command.starting_lba = start;
     command.main_channel |= MainChannelFlags::USER_DATA;
 
@@ -172,7 +219,7 @@ pub fn read_audio_range(file: &File, start: Lba, sectors: U24) -> Result<Vec<u8>
         out.extend_from_slice(&data);
 
         // This conversion is mathematically safe
-        start += Lba::from(i32::try_from(sectors_to_read.to_u32()).unwrap());
+        start += Lba::try_from(i32::try_from(sectors_to_read.to_u32()).unwrap()).unwrap();
         command.starting_lba = start;
 
         remaining -= sectors_to_read;

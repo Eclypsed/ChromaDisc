@@ -8,6 +8,7 @@ arrayvec = "0.7.6"
 bitflags = "2.10.0"
 derive_more = { version = "2.1.1", features = ["full"] }
 i24 = "2.2.7"
+indicatif = "0.18.3"
 libc = "0.2.178"
 libcdio-sys = "1.0.0"
 mmc-errors = { version = "0.1.0", path = "mmc-errors" }

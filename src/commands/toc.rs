@@ -1,18 +1,20 @@
 use bitflags::bitflags;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use std::fmt::Display;
 use std::marker::PhantomData;
-use std::ops::Sub;
 use thiserror::Error;
 
-use crate::addressing::{Address, Lba, Msf};
+use crate::addressing::{Address, AddressError, Lba, Msf};
 
 use super::Command;
 
 const TOC_HEADER_LEN: usize = 4;
 
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum Error<Addr: TOCAddr> {
+    #[error(transparent)]
+    InvalidAddress(#[from] AddressError<Addr>),
+    #[error("Encountered invalid ADR {0:04b}")]
+    InvalidAdr(u8),
     #[error("Received {0} bytes of READ TOC response, expected at least {min}", min = TOC_HEADER_LEN)]
     IncompleteHeader(usize),
 }
@@ -20,26 +22,26 @@ pub enum Error {
 pub trait TOCAddr: Address {
     const MSF_FLAG: bool;
 
-    fn from_be_bytes(bytes: &[u8; 4]) -> Self;
+    fn from_be_bytes(bytes: &[u8; 4]) -> Result<Self, AddressError<Self>>;
 }
 
 impl TOCAddr for Lba {
     const MSF_FLAG: bool = false;
 
-    fn from_be_bytes(bytes: &[u8; 4]) -> Self {
-        i32::from_be_bytes(*bytes).into()
+    fn from_be_bytes(bytes: &[u8; 4]) -> Result<Self, AddressError<Self>> {
+        i32::from_be_bytes(*bytes).try_into()
     }
 }
 
 impl TOCAddr for Msf {
     const MSF_FLAG: bool = true;
 
-    fn from_be_bytes(bytes: &[u8; 4]) -> Self {
-        Msf::new_unchecked(bytes[1], bytes[2], bytes[3])
+    fn from_be_bytes(bytes: &[u8; 4]) -> Result<Self, AddressError<Self>> {
+        Msf::new(bytes[1], bytes[2], bytes[3])
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive)]
 #[repr(u8)]
 pub enum Format {
     FormattedTOC = 0b0000,
@@ -92,7 +94,8 @@ where
         bytes[1] |= u8::from(Self::MSF_FLAG) << 1;
         bytes[2] |= u8::from(Self::FORMAT) & 0xF;
         bytes[6] = self.track;
-        bytes[7..=8].copy_from_slice(&self.allocation_len.to_be_bytes());
+        bytes[7] = (self.allocation_len >> 8) as u8;
+        bytes[8] = self.allocation_len as u8;
         bytes[9] = self.control;
 
         bytes
@@ -156,25 +159,22 @@ bitflags! {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct TrackDescriptor<Addr: TOCAddr> {
     /// The type of information encoded in the Q Sub-channel of the block where this TOC entry was found
-    #[allow(dead_code)]
     pub adr: Adr,
     /// Indicates the attributes of the track.
-    #[allow(dead_code)]
     pub control: Control,
     pub number: u8,
     pub start_addr: Addr,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Toc<Addr: TOCAddr> {
-    #[allow(dead_code)]
     pub length: u16,
-    #[allow(dead_code)]
     pub first_track_num: u8,
-    #[allow(dead_code)]
     pub last_track_num: u8,
     pub track_descriptors: Vec<TrackDescriptor<Addr>>,
 }
@@ -183,7 +183,7 @@ impl<Addr> TryFrom<Vec<u8>> for Toc<Addr>
 where
     Addr: TOCAddr,
 {
-    type Error = Error;
+    type Error = Error<Addr>;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         if value.len() < 4 {
@@ -194,15 +194,17 @@ where
         let first_track_num = value[2];
         let last_track_num = value[3];
 
-        let mut track_descriptors: Vec<TrackDescriptor<Addr>> = vec![];
+        let num_tracks: usize = (last_track_num - first_track_num).into();
+        let mut track_descriptors: Vec<TrackDescriptor<Addr>> = Vec::with_capacity(num_tracks);
 
         for descriptor in value[4..].chunks_exact(8) {
-            let adr = Adr::try_from_primitive((descriptor[1] & 0xF0) >> 4)
-                .expect("Encountered invalid ADR");
+            let adr_bits = (descriptor[1] & 0xF0) >> 4;
+            let adr = Adr::try_from_primitive(adr_bits)
+                .map_err(|_| Error::<Addr>::InvalidAdr(adr_bits))?;
             let control = Control::from_bits_truncate(descriptor[1] & 0x0F);
             let track_num = descriptor[2];
 
-            let start_addr: Addr = Addr::from_be_bytes(&descriptor[4..=7].try_into().unwrap());
+            let start_addr: Addr = Addr::from_be_bytes(&descriptor[4..=7].try_into().unwrap())?;
 
             track_descriptors.push(TrackDescriptor {
                 adr,
@@ -221,38 +223,38 @@ where
     }
 }
 
-impl<Addr> Display for Toc<Addr>
-where
-    Addr: TOCAddr + Sub<Output = Addr> + Display,
-    Lba: From<Addr> + From<i32>,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "TOC of the disc")?;
-        writeln!(
-            f,
-            "\t {:^5} | {:^8} | {:^8} | {:^11} | {:^9} ",
-            "Track", "Start", "Length", "Start (LBA)", "End (LBA)"
-        )?;
-        write!(f, "\t{}", "-".repeat(55))?;
-
-        for window in self.track_descriptors.windows(2) {
-            let (cur, next) = (&window[0], &window[1]);
-
-            let start_lba = Lba::from(cur.start_addr);
-            let end_lba = Lba::from(next.start_addr) - Lba::from(1);
-            let length = next.start_addr - cur.start_addr;
-
-            write!(
-                f,
-                "\n\t {:^5} | {:^8} | {:^8} | {:^11} | {:^9} ",
-                format!("{:2}", cur.number),
-                cur.start_addr,
-                length,
-                format!("{:6}", start_lba),
-                format!("{:6}", end_lba),
-            )?;
-        }
-
-        Ok(())
-    }
-}
+// impl<Addr> Display for Toc<Addr>
+// where
+//     Addr: TOCAddr + Sub<Output = Addr> + Display,
+//     Lba: From<Addr> + From<i32>,
+// {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         writeln!(f, "TOC of the disc")?;
+//         writeln!(
+//             f,
+//             "\t {:^5} | {:^8} | {:^8} | {:^11} | {:^9} ",
+//             "Track", "Start", "Length", "Start (LBA)", "End (LBA)"
+//         )?;
+//         write!(f, "\t{}", "-".repeat(55))?;
+//
+//         for window in self.track_descriptors.windows(2) {
+//             let (cur, next) = (&window[0], &window[1]);
+//
+//             let start_lba = Lba::from(cur.start_addr);
+//             let end_lba = Lba::from(next.start_addr) - Lba::from(1);
+//             let length = next.start_addr - cur.start_addr;
+//
+//             write!(
+//                 f,
+//                 "\n\t {:^5} | {:^8} | {:^8} | {:^11} | {:^9} ",
+//                 format!("{:2}", cur.number),
+//                 format!("{:6}", cur.start_addr),
+//                 format!("{:6}", length),
+//                 format!("{:6}", start_lba),
+//                 format!("{:6}", end_lba),
+//             )?;
+//         }
+//
+//         Ok(())
+//     }
+// }

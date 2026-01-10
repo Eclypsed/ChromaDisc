@@ -2,7 +2,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
 
 use crate::features::{
-    self, FeatureDescriptor,
+    self, FeatureDescriptor, parse_fature,
     profile_list::{self, Profile},
 };
 
@@ -47,6 +47,7 @@ pub struct GetConfiguration {
     control: Control,
 }
 
+#[allow(dead_code)]
 impl GetConfiguration {
     pub fn new(
         rt: RTField,
@@ -87,9 +88,9 @@ impl Command<10> for GetConfiguration {
     }
 }
 
+#[allow(dead_code)]
 pub struct GetConfigurationResponse {
     /// The number of bytes in the response following this field, which comprises the first 4 bytes
-    #[allow(dead_code)]
     data_length: u32,
     /// The drive's current profile
     pub current_profile: Profile,
@@ -134,8 +135,9 @@ impl TryFrom<Vec<u8>> for GetConfigurationResponse {
         let mut descriptors = Vec::new();
 
         while let Some((chunk, remainder)) = next_descriptor(descriptor_bytes) {
-            if let Ok(descriptor) = FeatureDescriptor::try_from(chunk) {
-                descriptors.push(descriptor)
+            match parse_fature(chunk) {
+                Ok(descriptor) => descriptors.push(descriptor),
+                Err(e) => println!("{e}"),
             }
 
             descriptor_bytes = remainder;

@@ -2,6 +2,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
 
 pub mod core;
+pub mod morphing;
 pub mod profile_list;
 
 #[derive(Debug, Error)]
@@ -17,16 +18,18 @@ pub enum Error {
     UnknownOpcode(u16),
     #[error("Feature {0:?} not implemented")]
     UnimplementedFeature(FeatureCode),
-    #[error(transparent)]
-    FeatureData(#[from] FeatureDataError),
+    #[error("Failed to parse Feature Descriptor")]
+    ParseFailed(#[source] DescriptorParseError),
 }
 
 #[derive(Debug, Error)]
-pub enum FeatureDataError {
+pub enum DescriptorParseError {
     #[error(transparent)]
     ProfileList(#[from] profile_list::Error),
     #[error(transparent)]
     Core(#[from] core::Error),
+    #[error(transparent)]
+    Morphing(#[from] morphing::Error),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
@@ -146,78 +149,88 @@ pub enum FeatureCode {
 }
 
 #[allow(dead_code)]
-trait FeatureData: Sized {
-    const FEATURE_CODE: FeatureCode;
-
-    fn parse(bytes: &[u8]) -> Result<Self, FeatureDataError>;
-}
-
-#[allow(dead_code)]
 #[derive(Debug)]
-pub enum FeatureDataType {
-    ProfileList(profile_list::ProfileList),
-    Core(core::Core),
-}
-
-fn parse_feature_data(code: FeatureCode, bytes: &[u8]) -> Result<FeatureDataType, Error> {
-    Ok(match code {
-        FeatureCode::ProfileList => {
-            FeatureDataType::ProfileList(profile_list::ProfileList::parse(bytes)?)
-        }
-        FeatureCode::Core => FeatureDataType::Core(core::Core::parse(bytes)?),
-        _ => Err(Error::UnimplementedFeature(code))?,
-    })
-}
-
-#[allow(dead_code)]
-pub struct FeatureDescriptor {
+pub struct FeatureHeader {
     pub version: u8,
     pub persistent: bool,
     pub current: bool,
     pub additional_length: u8,
-    pub feature_data: FeatureDataType,
 }
 
-impl TryFrom<&[u8]> for FeatureDescriptor {
-    type Error = Error;
+#[allow(dead_code)]
+impl FeatureHeader {
+    const VERSION_MASK: u8 = 0b00111100;
+    const PERSISTENT_MASK: u8 = 0b00000010;
+    const CURRENT_MASK: u8 = 0b00000001;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        const VERSION_MASK: u8 = 0b00111100;
-        const PERSISTENT_MASK: u8 = 0b00000010;
-        const CURRENT_MASK: u8 = 0b00000001;
+    fn parse(bytes: &[u8; 4]) -> Self {
+        let version = (bytes[2] & Self::VERSION_MASK) >> 2;
+        let persistent = (bytes[2] & Self::PERSISTENT_MASK) >> 1 != 0;
+        let current = (bytes[2] & Self::CURRENT_MASK) != 0;
+        let additional_length = bytes[3];
 
-        let Some(header_bytes) = value.get(0..4) else {
-            return Err(Error::DescriptorSize(value.len()));
-        };
-
-        let feature_code = FeatureCode::try_from_primitive(u16::from_be_bytes([
-            header_bytes[0],
-            header_bytes[1],
-        ]))?;
-
-        let version = (header_bytes[2] & VERSION_MASK) >> 2;
-        let persistent = (header_bytes[2] & PERSISTENT_MASK) >> 1 != 0;
-        let current = header_bytes[2] & CURRENT_MASK != 0;
-
-        let additional_length = header_bytes[3];
-
-        let end: usize = (additional_length + 4).into();
-
-        let Some(data_bytes) = value.get(4..end) else {
-            return Err(Error::DataSize {
-                expected: end - 4,
-                received: value.len() - 4,
-            });
-        };
-
-        let feature_data = parse_feature_data(feature_code, data_bytes)?;
-
-        Ok(Self {
+        Self {
             version,
             persistent,
             current,
             additional_length,
-            feature_data,
-        })
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub trait Feature<D: AsRef<[u8]>>: Sized {
+    const FEATURE_CODE: FeatureCode;
+
+    type Error;
+
+    fn parse(header: FeatureHeader, data: D) -> Result<Self, Self::Error>;
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub enum FeatureDescriptor {
+    ProfileList(profile_list::ProfileList),
+    Core(core::Core),
+    Morphing(morphing::Morphing),
+}
+
+#[allow(dead_code)]
+fn to_fixed<const N: usize>(bytes: &[u8]) -> Result<&[u8; N], Error> {
+    <&[u8; N]>::try_from(bytes).map_err(|_| Error::DataSize {
+        expected: N,
+        received: bytes.len(),
+    })
+}
+
+#[allow(dead_code)]
+pub fn parse_fature(bytes: &[u8]) -> Result<FeatureDescriptor, Error> {
+    let Some(header_bytes) = bytes.get(0..4).map(|b| <&[u8; 4]>::try_from(b).unwrap()) else {
+        return Err(Error::DescriptorSize(bytes.len()));
+    };
+
+    let feature_code =
+        FeatureCode::try_from_primitive(u16::from_be_bytes([header_bytes[0], header_bytes[1]]))?;
+    let header = FeatureHeader::parse(header_bytes);
+
+    let end = usize::from(header.additional_length + 4);
+    let Some(data_bytes) = bytes.get(4..end) else {
+        return Err(Error::DataSize {
+            expected: header.additional_length.into(),
+            received: bytes.len() - 4,
+        });
+    };
+
+    match feature_code {
+        FeatureCode::ProfileList => profile_list::ProfileList::parse(header, data_bytes)
+            .map(FeatureDescriptor::ProfileList)
+            .map_err(|e| Error::ParseFailed(e.into())),
+        FeatureCode::Core => core::Core::parse(header, to_fixed::<8>(data_bytes)?)
+            .map(FeatureDescriptor::Core)
+            .map_err(|e| Error::ParseFailed(e.into())),
+        FeatureCode::Morphing => morphing::Morphing::parse(header, to_fixed::<4>(data_bytes)?)
+            .map(FeatureDescriptor::Morphing)
+            .map_err(|e| Error::ParseFailed(e.into())),
+        _ => Err(Error::UnimplementedFeature(feature_code)),
     }
 }
