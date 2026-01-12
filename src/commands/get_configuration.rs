@@ -8,11 +8,11 @@ use crate::features::{
 
 use super::{Command, Control};
 
-const FEATURE_HEADER_LEN: usize = 8;
+const FEATURE_HEADER_LENGTH: usize = 8;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Received {0} bytes of GET CONFIGURATION response, expected at least {min}", min = FEATURE_HEADER_LEN)]
+    #[error("Received {0} bytes of GET CONFIGURATION response, expected at least {min}", min = FEATURE_HEADER_LENGTH)]
     IncompleteHeader(usize),
     #[error(
         "Received {received} bytes of GET CONFIGURATION data, 'Data Length' expected: {data_length}"
@@ -116,7 +116,7 @@ impl TryFrom<Vec<u8>> for GetConfigurationResponse {
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         let response_len = value.len();
 
-        if response_len < FEATURE_HEADER_LEN {
+        if response_len < FEATURE_HEADER_LENGTH {
             return Err(Error::IncompleteHeader(response_len));
         }
 
@@ -131,7 +131,7 @@ impl TryFrom<Vec<u8>> for GetConfigurationResponse {
             });
         }
 
-        let mut descriptor_bytes = value.get(FEATURE_HEADER_LEN..).unwrap_or(&[]);
+        let mut descriptor_bytes = value.get(FEATURE_HEADER_LENGTH..).unwrap_or(&[]);
         let mut descriptors = Vec::new();
 
         while let Some((chunk, remainder)) = next_descriptor(descriptor_bytes) {

@@ -1,7 +1,6 @@
 use std::{
     cmp::Ordering,
     fmt::{self, Display},
-    ops::Sub,
 };
 
 use derive_more::{
@@ -9,10 +8,14 @@ use derive_more::{
 };
 use thiserror::Error;
 
-use crate::constants::{FRAMES_PER_MINUTE, FRAMES_PER_SECOND, PREGAP_OFFSET};
+use crate::constants::PREGAP_OFFSET;
 
 mod sealed {
-    pub trait Sealed {}
+    use std::fmt::Debug;
+
+    pub trait Sealed {
+        type Raw: Debug;
+    }
 }
 
 pub trait Address: sealed::Sealed + Copy + Display {
@@ -22,8 +25,8 @@ pub trait Address: sealed::Sealed + Copy + Display {
 
 #[derive(Error, Debug)]
 pub enum AddressError<Addr: Address> {
-    #[error("Address {0} out of range: {min}..={max}", min = Addr::MIN, max = Addr::MAX)]
-    OutOfRange(Addr),
+    #[error("Address input {0} out of range for: {min}..={max}", min = Addr::MIN, max = Addr::MAX)]
+    OutOfRange(Addr::Raw),
 }
 
 /// Newtype representing a Logical Block Address (LBA)
@@ -88,11 +91,13 @@ impl Lba {
             return Ok(Self::new_unchecked(value));
         }
 
-        Err(AddressError::OutOfRange(Self(value)))
+        Err(AddressError::OutOfRange(value))
     }
 }
 
-impl sealed::Sealed for Lba {}
+impl sealed::Sealed for Lba {
+    type Raw = i32;
+}
 
 impl Address for Lba {
     const MIN: Self = lba!(Self::MIN_RAW);
@@ -135,7 +140,9 @@ impl From<Msf> for Lba {
 #[derive(Clone, Copy, Debug)]
 pub struct Msf(u8, u8, u8);
 
-impl sealed::Sealed for Msf {}
+impl sealed::Sealed for Msf {
+    type Raw = (u8, u8, u8);
+}
 
 impl Address for Msf {
     const MIN: Self = Self::new_unchecked(0, 0, 0);
@@ -152,7 +159,7 @@ impl Msf {
 
     pub fn new(min: u8, sec: u8, frame: u8) -> Result<Self, AddressError<Msf>> {
         if min > Self::MAX_MIN || sec > Self::MAX_SEC || frame > Self::MAX_FRAME {
-            return Err(AddressError::OutOfRange(Self(min, sec, frame)));
+            return Err(AddressError::OutOfRange((min, sec, frame)));
         }
 
         Ok(Self::new_unchecked(min, sec, frame))
@@ -164,21 +171,6 @@ impl Msf {
         assert!(frame <= Self::MAX_FRAME, "frames out of range");
 
         Self(min, sec, frame)
-    }
-
-    fn to_frames(self) -> u32 {
-        let Msf(m, s, f) = self;
-
-        m as u32 * FRAMES_PER_MINUTE as u32 + s as u32 * FRAMES_PER_SECOND as u32 + f as u32
-    }
-
-    fn from_frames(frames: u32) -> Self {
-        let min = frames / FRAMES_PER_MINUTE as u32;
-        let mut frames = frames - min * FRAMES_PER_MINUTE as u32;
-        let sec = frames / FRAMES_PER_SECOND as u32;
-        frames -= sec * FRAMES_PER_SECOND as u32;
-
-        Msf::new_unchecked(min as u8, sec as u8, frames as u8)
     }
 }
 
@@ -238,23 +230,5 @@ impl Ord for Msf {
             }
             _ => m,
         }
-    }
-}
-
-impl Sub for Msf {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        let mut lhs_frames = self.to_frames();
-        let rhs_frames = rhs.to_frames();
-
-        if lhs_frames < rhs_frames {
-            lhs_frames += Self::MAX_MIN as u32 * FRAMES_PER_MINUTE as u32
-                + Self::MAX_SEC as u32 * FRAMES_PER_SECOND as u32
-                + Self::MAX_FRAME as u32
-                + 1;
-        }
-
-        Msf::from_frames(lhs_frames - rhs_frames)
     }
 }

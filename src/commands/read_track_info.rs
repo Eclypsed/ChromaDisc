@@ -3,13 +3,13 @@ use thiserror::Error;
 
 use super::{Command, Control};
 
-const RESPONSE_DATA_LEN: usize = 46;
+const MIN_RESPONSE_LENGTH: usize = 46;
 
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Encountered invalid CD Data Mode {0:X}")]
     InvalidDataMode(u8),
-    #[error("Received {0} bytes of READ TRACK INFORMATION response, expected at least {min}", min = RESPONSE_DATA_LEN)]
+    #[error("Received {0} bytes of READ TRACK INFORMATION response, expected at least {min}", min = MIN_RESPONSE_LENGTH)]
     IncompleteResponse(usize),
 }
 
@@ -112,15 +112,15 @@ pub struct ReadTrackInfoResponse {
     pub data_mode: DataMode,
     pub lra_v: bool,
     pub nwa_v: bool,
-    pub logical_track_start_addr: u32,
-    pub next_writable_addr: u32,
+    pub logical_track_start_addr: i32,
+    pub next_writable_addr: i32,
     pub free_blocks: u32,
     pub fixed_packet_size: u32,
     pub logical_track_size: u32,
-    pub last_recorded_addr: u32,
-    pub read_compatibility_lba: u32,
-    pub next_layer_jump_addr: u32,
-    pub last_layer_jump_addr: u32,
+    pub last_recorded_addr: i32,
+    pub read_compatibility_lba: i32,
+    pub next_layer_jump_addr: i32,
+    pub last_layer_jump_addr: i32,
 }
 
 impl ReadTrackInfoResponse {
@@ -142,7 +142,7 @@ impl TryFrom<Vec<u8>> for ReadTrackInfoResponse {
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         let data_len = value.len();
-        if data_len < RESPONSE_DATA_LEN {
+        if data_len < MIN_RESPONSE_LENGTH {
             return Err(Error::IncompleteResponse(data_len));
         }
 
@@ -162,16 +162,16 @@ impl TryFrom<Vec<u8>> for ReadTrackInfoResponse {
         let nwa_v = (value[7] & Self::NWA_V_MASK) != 0;
 
         let logical_track_start_addr =
-            u32::from_be_bytes([value[8], value[9], value[10], value[11]]);
-        let next_writable_addr = u32::from_be_bytes([value[12], value[13], value[14], value[15]]);
+            i32::from_be_bytes([value[8], value[9], value[10], value[11]]);
+        let next_writable_addr = i32::from_be_bytes([value[12], value[13], value[14], value[15]]);
         let free_blocks = u32::from_be_bytes([value[16], value[17], value[18], value[19]]);
         let fixed_packet_size = u32::from_be_bytes([value[20], value[21], value[22], value[23]]);
         let logical_track_size = u32::from_be_bytes([value[24], value[25], value[26], value[27]]);
-        let last_recorded_addr = u32::from_be_bytes([value[28], value[29], value[30], value[31]]);
+        let last_recorded_addr = i32::from_be_bytes([value[28], value[29], value[30], value[31]]);
         let read_compatibility_lba =
-            u32::from_be_bytes([value[36], value[37], value[38], value[39]]);
-        let next_layer_jump_addr = u32::from_be_bytes([value[40], value[41], value[42], value[43]]);
-        let last_layer_jump_addr = u32::from_be_bytes([value[44], value[45], value[46], value[47]]);
+            i32::from_be_bytes([value[36], value[37], value[38], value[39]]);
+        let next_layer_jump_addr = i32::from_be_bytes([value[40], value[41], value[42], value[43]]);
+        let last_layer_jump_addr = i32::from_be_bytes([value[44], value[45], value[46], value[47]]);
 
         Ok(Self {
             logical_track_number,

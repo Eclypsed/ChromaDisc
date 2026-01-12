@@ -1,17 +1,15 @@
-use indicatif::ProgressBar;
-use std::{fs::File, path::Path, time::Instant};
-
-use i24::U24;
+use chrono::Local;
+use std::{fs::File, path::Path};
 
 use crate::{
-    addressing::Lba,
+    addressing::{Lba, Msf},
     commands::{
         Command,
-        read_cd::SectorReader,
+        inquiry::Inquiry,
         read_track_info::{AddressType, ReadTrackInfo, ReadTrackInfoResponse},
         toc::FormattedTOC,
     },
-    constants::CHROMADISC_VERSION,
+    constants::{CHROMADISC_VERSION, FRAMES_PER_MINUTE, FRAMES_PER_SECOND},
 };
 
 mod addressing;
@@ -21,6 +19,39 @@ mod constants;
 mod error;
 mod features;
 mod sgio;
+
+fn print_toc(tracks: &[ReadTrackInfoResponse]) {
+    println!("TOC of the extracted CD");
+    println!(
+        "\t {:^5} | {:^8} | {:^8} | {:^11} | {:^9} ",
+        "Track", "Start", "Length", "Start (LBA)", "End (LBA)"
+    );
+    println!("\t{}", "-".repeat(55));
+
+    for track in tracks {
+        let start = Lba::try_from(track.logical_track_start_addr).unwrap();
+        let length = track.logical_track_size;
+        let end = Lba::try_from(i32::from(start) + i32::try_from(length).unwrap() - 1).unwrap();
+
+        let mut frames = length;
+        let minutes = frames / FRAMES_PER_MINUTE as u32;
+        frames -= minutes * FRAMES_PER_MINUTE as u32;
+        let seconds = frames / FRAMES_PER_SECOND as u32;
+        frames -= seconds * FRAMES_PER_SECOND as u32;
+
+        println!(
+            "\t {:^5} | {:^8} | {:^8} | {:^11} | {:^9} ",
+            format!("{:2}", track.logical_track_number),
+            Msf::from(start),
+            format!(
+                "{:2}:{:02}:{:02}",
+                minutes as u8, seconds as u8, frames as u8
+            ),
+            format!("{:6}", start),
+            format!("{:6}", end)
+        );
+    }
+}
 
 fn main() {
     let device = Path::new("/dev/cdrom");
@@ -33,6 +64,19 @@ fn main() {
     println!("ChromaDisc version {}", CHROMADISC_VERSION);
     println!();
 
+    let timestamp = Local::now();
+    println!("ChromaDisc extraction logfile from {timestamp}");
+    println!();
+
+    let inquiry = Inquiry::new(false, 0, 0.into()).execute(&file).unwrap();
+    println!(
+        "Used drive : {} {} (revision {})",
+        inquiry.t10_vendor_identification,
+        inquiry.product_identification,
+        inquiry.product_revision_level
+    );
+    println!();
+
     let toc = FormattedTOC::<Lba>::new(0, 2048, 0).execute(&file).unwrap();
 
     let track_info: Vec<ReadTrackInfoResponse> = (toc.first_track_num..=toc.last_track_num)
@@ -40,33 +84,6 @@ fn main() {
         .collect::<Result<Vec<ReadTrackInfoResponse>, _>>()
         .unwrap();
 
-    for track in track_info {
-        let start = track.logical_track_start_addr;
-        let end = track.logical_track_start_addr + track.logical_track_size - 1;
-
-        let sectors = U24::try_from_u32(end - start).unwrap();
-
-        let bar = ProgressBar::new(sectors.to_u32().into());
-
-        let start_lba = Lba::try_from(i32::try_from(start).unwrap()).unwrap();
-        let reader = SectorReader::new(&file, start_lba, sectors);
-
-        println!("Reading Track {}", track.logical_track_number);
-        let now = Instant::now();
-
-        for res in reader {
-            let (_, remain) = res.unwrap();
-            let read = sectors - remain;
-            bar.set_position(read.into());
-        }
-
-        let elapsed_time = now.elapsed();
-
-        bar.finish();
-        println!(
-            "Reading Track {} took {:.3} seconds",
-            track.logical_track_number,
-            elapsed_time.as_secs_f32()
-        )
-    }
+    print_toc(&track_info);
+    println!();
 }

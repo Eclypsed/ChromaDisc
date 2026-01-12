@@ -1,6 +1,8 @@
 #![doc = include_str!("../../docs/scsi.md")]
 
 pub mod get_configuration;
+pub mod inquiry;
+pub mod read_capacity;
 pub mod read_cd;
 pub mod read_track_info;
 pub mod toc;

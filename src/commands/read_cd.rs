@@ -79,14 +79,14 @@ pub enum SubChannelSelection {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ReadCD {
-    sector_type: SectorType,
-    dap: bool,
-    starting_lba: Lba,
-    transfer_length: U24,
-    main_channel: MainChannelFlags,
-    c2_error_info: C2ErrorCode,
-    sub_channel: SubChannelSelection,
-    control: Control,
+    pub sector_type: SectorType,
+    pub dap: bool,
+    pub starting_lba: Lba,
+    pub transfer_length: U24,
+    pub main_channel: MainChannelFlags,
+    pub c2_error_info: C2ErrorCode,
+    pub sub_channel: SubChannelSelection,
+    pub control: Control,
 }
 
 impl Command<12> for ReadCD {
@@ -154,6 +154,7 @@ pub struct SectorReader<'a> {
     command: ReadCD,
 }
 
+#[allow(dead_code)]
 impl<'a> SectorReader<'a> {
     // 2352 * 27 = 63531 ~ 64 KBs common CD firmware limit
     const MAX_SECTORS_PER: U24 = u24!(27);

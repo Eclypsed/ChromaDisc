@@ -222,39 +222,3 @@ where
         })
     }
 }
-
-// impl<Addr> Display for Toc<Addr>
-// where
-//     Addr: TOCAddr + Sub<Output = Addr> + Display,
-//     Lba: From<Addr> + From<i32>,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         writeln!(f, "TOC of the disc")?;
-//         writeln!(
-//             f,
-//             "\t {:^5} | {:^8} | {:^8} | {:^11} | {:^9} ",
-//             "Track", "Start", "Length", "Start (LBA)", "End (LBA)"
-//         )?;
-//         write!(f, "\t{}", "-".repeat(55))?;
-//
-//         for window in self.track_descriptors.windows(2) {
-//             let (cur, next) = (&window[0], &window[1]);
-//
-//             let start_lba = Lba::from(cur.start_addr);
-//             let end_lba = Lba::from(next.start_addr) - Lba::from(1);
-//             let length = next.start_addr - cur.start_addr;
-//
-//             write!(
-//                 f,
-//                 "\n\t {:^5} | {:^8} | {:^8} | {:^11} | {:^9} ",
-//                 format!("{:2}", cur.number),
-//                 format!("{:6}", cur.start_addr),
-//                 format!("{:6}", length),
-//                 format!("{:6}", start_lba),
-//                 format!("{:6}", end_lba),
-//             )?;
-//         }
-//
-//         Ok(())
-//     }
-// }
