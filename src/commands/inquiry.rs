@@ -59,10 +59,6 @@ impl Command<6> for Inquiry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PeripheralQualifier {
-    /// A peripheral device having the specified peripheral device type is connected to this
-    /// logical unit. If the device server is unable to determine whether or not a peripheral
-    /// device is connected, it also shall use this peripheral qualifier. This peripheral qualifier
-    /// does not mean that the peripheral device connected to the logical unit is ready for access.
     ConnectedOrUnknown = 0b000,
     NotConnectedButSupported = 0b001,
     Reserved = 0b010,

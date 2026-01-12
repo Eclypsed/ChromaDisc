@@ -1,5 +1,3 @@
-#![doc = include_str!("../../docs/scsi.md")]
-
 pub mod get_configuration;
 pub mod inquiry;
 pub mod read_capacity;
@@ -30,7 +28,7 @@ pub trait Command<const CDB_LEN: usize>: Sized {
     /// | GROUPCODE |    COMMAND CODE   |
     /// +---+---+---+---+---+---+---+---+
     /// ```
-    /// See: [SAM-2]
+    /// See: [SAM-6]
     const OP_CODE: u8;
 
     type Response: TryFrom<Vec<u8>>;
@@ -58,7 +56,7 @@ pub trait Command<const CDB_LEN: usize>: Sized {
 /// * **O**  - Obsolete
 /// * **L**  - Link
 ///
-/// See: [SAM-2]
+/// See: [SAM-6]
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, From, Into)]
 pub struct Control(u8);

@@ -150,9 +150,6 @@ impl Address for Msf {
 }
 
 impl Msf {
-    // Idk what is going on with the minute field of MSFs. At the start of the MMC-6 spec it is
-    // stated that according to the CD spec the values 0-79 are valid, but then in other parts
-    // (like the LBA to MSF translation table) MSFs are shown to go as high as 99.
     const MAX_MIN: u8 = 99;
     const MAX_SEC: u8 = 59;
     const MAX_FRAME: u8 = 74;

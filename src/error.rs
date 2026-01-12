@@ -1,7 +1,7 @@
+//! Errors to identify sgio failures straight from the MMC-6 spec
+
 use mmc_errors::MMCError;
 use thiserror::Error;
-
-// Errors to identify sgio failures straight from the MMC-6 spec
 
 #[derive(Error, Debug)]
 pub enum MMCError {
