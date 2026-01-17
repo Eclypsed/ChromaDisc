@@ -1,11 +1,11 @@
-use bitflags::bitflags;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::marker::PhantomData;
 use thiserror::Error;
 
-use crate::addressing::{Address, AddressError, Lba, Msf};
+use crate::core::addressing::{Address, AddressError, Lba, Msf};
+use crate::scsi::mmc::types::q_subchannel;
 
-use super::Command;
+use super::{Command, Control};
 
 const TOC_HEADER_LEN: usize = 4;
 
@@ -61,7 +61,7 @@ pub trait TOCCommand: Command<10> {
 pub struct FormattedTOC<Addr: TOCAddr> {
     track: u8,
     allocation_len: u16,
-    control: u8,
+    control: Control,
     _msf: PhantomData<Addr>,
 }
 
@@ -69,7 +69,7 @@ impl<Addr> FormattedTOC<Addr>
 where
     Addr: TOCAddr,
 {
-    pub fn new(track: u8, allocation_len: u16, control: u8) -> Self {
+    pub fn new(track: u8, allocation_len: u16, control: Control) -> Self {
         FormattedTOC {
             track,
             allocation_len,
@@ -96,7 +96,7 @@ where
         bytes[6] = self.track;
         bytes[7] = (self.allocation_len >> 8) as u8;
         bytes[8] = self.allocation_len as u8;
-        bytes[9] = self.control;
+        bytes[9] = self.control.into();
 
         bytes
     }
@@ -114,66 +114,19 @@ where
     const MSF_FLAG: bool = Addr::MSF_FLAG;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
-#[repr(u8)]
-pub enum Adr {
-    Mode1Q = 0b0001,
-    Mode2Q = 0b0010,
-    Mode3Q = 0b0011,
-}
-
-bitflags! {
-    #[repr(transparent)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct Control: u8 {
-        /// If set and track is audio, the track has 4 channels, otherwise 2. Not set when track is data.
-        ///
-        /// # Examples
-        ///
-        /// - 00xx = 2 audio channels
-        /// - 10xx = 4 audio channels
-        const FOUR_CHANNELS = 1 << 3;
-        /// If set, track is data, otherwise audio.
-        ///
-        /// # Examples
-        ///
-        /// - x0xx = Audio Track
-        /// - 01xx = Data Track
-        const IS_DATA = 1 << 2;
-        /// If set digital copy is permitted, otherwise prohibited.
-        ///
-        /// # Examples
-        ///
-        /// - xx0x = Digital copy prohibited
-        /// - xx1x = Digital copy permitted
-        const COPY_PERMITTED = 1 << 1;
-        /// If set and track is audio, pre-emphasis is enabled. If set and track is data, track is recorded incrementally, otherwise uninterrupted.
-        ///
-        /// # Examples
-        ///
-        /// - x0x0 = Audio without pre-emphasis
-        /// - x0x1 = Audio with pre-emphasis
-        /// - 01x0 = Data track recorded uninterrupted
-        /// - 01x1 = Data track recorded incrementally
-        const PREEMPHASIS_OR_INCREMENTAL = 1 << 0;
-    }
-}
-
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct TrackDescriptor<Addr: TOCAddr> {
     /// The type of information encoded in the Q Sub-channel of the block where this TOC entry was found
-    pub adr: Adr,
+    pub adr: q_subchannel::Adr,
     /// Indicates the attributes of the track.
-    pub control: Control,
+    pub control: q_subchannel::Control,
     pub number: u8,
     pub start_addr: Addr,
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Toc<Addr: TOCAddr> {
-    pub length: u16,
+    // length: u16,
     pub first_track_num: u8,
     pub last_track_num: u8,
     pub track_descriptors: Vec<TrackDescriptor<Addr>>,
@@ -190,7 +143,7 @@ where
             return Err(Error::IncompleteHeader(value.len()));
         }
 
-        let length = u16::from_be_bytes([value[0], value[1]]);
+        // let length = u16::from_be_bytes([value[0], value[1]]);
         let first_track_num = value[2];
         let last_track_num = value[3];
 
@@ -199,9 +152,9 @@ where
 
         for descriptor in value[4..].chunks_exact(8) {
             let adr_bits = (descriptor[1] & 0xF0) >> 4;
-            let adr = Adr::try_from_primitive(adr_bits)
+            let adr = q_subchannel::Adr::try_from_primitive(adr_bits)
                 .map_err(|_| Error::<Addr>::InvalidAdr(adr_bits))?;
-            let control = Control::from_bits_truncate(descriptor[1] & 0x0F);
+            let control = q_subchannel::Control::from_bits_truncate(descriptor[1] & 0x0F);
             let track_num = descriptor[2];
 
             let start_addr: Addr = Addr::from_be_bytes(&descriptor[4..=7].try_into().unwrap())?;
@@ -215,7 +168,7 @@ where
         }
 
         Ok(Toc {
-            length,
+            // length,
             first_track_num,
             last_track_num,
             track_descriptors,

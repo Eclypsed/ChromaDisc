@@ -1,10 +1,7 @@
-use num_enum::{IntoPrimitive, TryFromPrimitive};
+use num_enum::IntoPrimitive;
 use thiserror::Error;
 
-use crate::features::{
-    self, FeatureDescriptor, parse_fature,
-    profile_list::{self, Profile},
-};
+use crate::scsi::mmc::features::{FeatureParser, MmcFeature};
 
 use super::{Command, Control};
 
@@ -18,10 +15,6 @@ pub enum Error {
         "Received {received} bytes of GET CONFIGURATION data, 'Data Length' expected: {data_length}"
     )]
     LengthMismatch { received: usize, data_length: u32 },
-    #[error(transparent)]
-    UnknownProfile(#[from] profile_list::Error),
-    #[error(transparent)]
-    MalformedResponse(#[from] features::Error),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive)]
@@ -47,7 +40,6 @@ pub struct GetConfiguration {
     control: Control,
 }
 
-#[allow(dead_code)]
 impl GetConfiguration {
     pub fn new(
         rt: RTField,
@@ -88,26 +80,14 @@ impl Command<10> for GetConfiguration {
     }
 }
 
-#[allow(dead_code)]
+#[derive(Debug)]
 pub struct GetConfigurationResponse {
     /// The number of bytes in the response following this field, which comprises the first 4 bytes
-    data_length: u32,
+    // data_length: u32,
     /// The drive's current profile
-    pub current_profile: Profile,
+    pub current_profile: u16,
     /// The list of defined Feature Descriptors this drive is capable of
-    pub descriptors: Vec<FeatureDescriptor>,
-}
-
-// Splits out a feature descriptor from a slice of bytes, returning the bytes that made up the
-// descriptor, and the remaining bytes after. Currently this does not verify that there aren't any
-// trailing bytes that would indicate an invalid response to the GET CONFIGURATION command.
-fn next_descriptor(data: &[u8]) -> Option<(&[u8], &[u8])> {
-    let generic_bytes = data.get(0..4)?;
-    let end: usize = (generic_bytes[3] + 4).into();
-    let descriptor = data.get(0..end)?;
-    let remainder = data.get(end..).unwrap_or(&[]);
-
-    Some((descriptor, remainder))
+    pub descriptors: Vec<Box<dyn MmcFeature>>,
 }
 
 impl TryFrom<Vec<u8>> for GetConfigurationResponse {
@@ -121,8 +101,7 @@ impl TryFrom<Vec<u8>> for GetConfigurationResponse {
         }
 
         let data_length = u32::from_be_bytes([value[0], value[1], value[2], value[3]]);
-        let current_profile =
-            Profile::try_from_primitive(u16::from_be_bytes([value[6], value[7]]))?;
+        let current_profile = u16::from_be_bytes([value[6], value[7]]);
 
         if response_len - 4 != data_length as usize {
             return Err(Error::LengthMismatch {
@@ -131,20 +110,12 @@ impl TryFrom<Vec<u8>> for GetConfigurationResponse {
             });
         }
 
-        let mut descriptor_bytes = value.get(FEATURE_HEADER_LENGTH..).unwrap_or(&[]);
-        let mut descriptors = Vec::new();
-
-        while let Some((chunk, remainder)) = next_descriptor(descriptor_bytes) {
-            match parse_fature(chunk) {
-                Ok(descriptor) => descriptors.push(descriptor),
-                Err(e) => println!("{e}"),
-            }
-
-            descriptor_bytes = remainder;
-        }
+        let descriptor_bytes = value.get(FEATURE_HEADER_LENGTH..).unwrap_or(&[]);
+        let descriptors =
+            FeatureParser::new(descriptor_bytes).collect::<Vec<Box<dyn MmcFeature>>>();
 
         Ok(Self {
-            data_length,
+            // data_length,
             current_profile,
             descriptors,
         })

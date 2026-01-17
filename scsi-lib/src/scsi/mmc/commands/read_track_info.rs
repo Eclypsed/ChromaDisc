@@ -1,6 +1,8 @@
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
 
+use crate::scsi::mmc::types::q_subchannel;
+
 use super::{Command, Control};
 
 const MIN_RESPONSE_LENGTH: usize = 46;
@@ -13,12 +15,11 @@ pub enum Error {
     IncompleteResponse(usize),
 }
 
-#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive)]
 #[repr(u8)]
 pub enum AddressType {
-    LBA = 0b00,
-    LTN = 0b01,
+    Lba = 0b00,
+    Ltn = 0b01,
     SessionNum = 0b10,
 }
 
@@ -96,7 +97,6 @@ pub enum DataMode {
     Unknown = 0xF,
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ReadTrackInfoResponse {
     pub logical_track_number: u16,
@@ -104,7 +104,11 @@ pub struct ReadTrackInfoResponse {
     pub ljrs: LayerJumpRecordingStatus,
     pub damage: bool,
     pub copy: bool,
-    pub track_mode: u8,
+    /// Though originally defined for CD media, the subchannel control field's meaning has been
+    /// adapted for other media based on their characteristics.
+    ///
+    /// See MMC-6 §6.26.3.9, Table 521.
+    pub track_mode: q_subchannel::Control,
     pub rt: bool,
     pub blank: bool,
     pub packet_inc: bool,
@@ -152,7 +156,8 @@ impl TryFrom<Vec<u8>> for ReadTrackInfoResponse {
         let ljrs = LayerJumpRecordingStatus::try_from((value[5] & Self::LJRS_MASK) >> 6).unwrap();
         let damage = (value[5] & Self::DAMAGE_MASK) >> 5 != 0;
         let copy = (value[5] & Self::COPY_MASK) >> 4 != 0;
-        let track_mode = value[5] & Self::TRACK_MODE_MASK;
+        let track_mode =
+            q_subchannel::Control::from_bits_truncate(value[5] & Self::TRACK_MODE_MASK);
         let rt = (value[6] & Self::RT_MASK) >> 7 != 0;
         let blank = (value[6] & Self::BLANK_MASK) >> 6 != 0;
         let packet_inc = (value[6] & Self::PACKET_INC_MASK) >> 5 != 0;

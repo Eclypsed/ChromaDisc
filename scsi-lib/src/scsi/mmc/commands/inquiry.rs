@@ -2,6 +2,8 @@ use std::str::Utf8Error;
 
 use thiserror::Error;
 
+use crate::scsi::mmc::types::spc;
+
 use super::{Command, Control};
 
 const MIN_RESPONSE_LENGTH: usize = 36;
@@ -134,49 +136,6 @@ impl From<u8> for PeripheralDeviceType {
     }
 }
 
-#[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum Version {
-    /// The device does not claim conformance to any standard.
-    NoConformance = 0x00,
-    /// The device complies to ANSI INCITS 301-1997 (SPC).
-    SPC = 0x03,
-    /// The device complies to ANSI INCITS 351-2001 (SPC-2).
-    SPC2 = 0x04,
-    /// The device complies to ANSI INCITS 408-2005 (SPC-3).
-    SPC3 = 0x05,
-    /// The device complies to ANSI INCITS 513-2015 (SPC-4)
-    SPC4 = 0x06,
-    /// The device complies to T10/BSR INCITS 503 (SPC-6)
-    SPC6 = 0x07,
-    Obselete(u8),
-    Reserved(u8),
-}
-
-impl From<u8> for Version {
-    fn from(value: u8) -> Self {
-        match value {
-            0x00 => Self::NoConformance,
-            0x03 => Self::SPC,
-            0x04 => Self::SPC2,
-            0x05 => Self::SPC3,
-            0x06 => Self::SPC4,
-            0x07 => Self::SPC6,
-            v @ (0x01
-            | 0x02
-            | 0x08..=0x0C
-            | 0x40..=0x44
-            | 0x48..=0x4C
-            | 0x80..=0x84
-            | 0x88..=0x8C) => Self::Obselete(v),
-            v @ (0x0D..=0x3F | 0x45..=0x47 | 0x4D..=0x7F | 0x85..=0x87 | 0x8D..=0xFF) => {
-                Self::Reserved(v)
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum TargetPortGroupSupport {
@@ -198,13 +157,12 @@ impl From<u8> for TargetPortGroupSupport {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct InquiryResponse {
     pub peripheral_qualifier: PeripheralQualifier,
     pub peripheral_device_type: PeripheralDeviceType,
     pub removable_media: bool,
-    pub version: Version,
+    pub version: spc::Version,
     pub normal_aca: bool,
     pub hierarchical_support: bool,
     pub response_data_format: u8,
@@ -247,7 +205,7 @@ impl TryFrom<Vec<u8>> for InquiryResponse {
         let peripheral_qualifier = PeripheralQualifier::from((value[0] & 0b11100000) >> 5);
         let peripheral_device_type = PeripheralDeviceType::from(value[0] & 0b00011111);
         let removable_media = (value[1] & 0b10000000) != 0;
-        let version = Version::from(value[2]);
+        let version = spc::Version::from(value[2]);
         let normal_aca = (value[3] & 0b00100000) != 0;
         let hierarchical_support = (value[3] & 0b00010000) != 0;
         let response_data_format = value[3] & 0b00001111;

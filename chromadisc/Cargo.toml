@@ -1,0 +1,12 @@
+[package]
+name = "chromadisc"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+chrono = "0.4.42"
+indicatif = "0.18.3"
+libc = "0.2.178"
+libcdio-sys = "1.0.0"
+scsi-lib = { path = "../scsi-lib" }

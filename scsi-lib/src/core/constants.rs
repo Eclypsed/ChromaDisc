@@ -1,10 +1,9 @@
-pub const CHROMADISC_VERSION: &str = "0.0.1";
+pub const CHROMADISC_VERSION: &str = "0.1.0";
 
 /// The number of frames per seconds of audio
 pub const FRAMES_PER_SECOND: u8 = 75;
 
 /// The number of frames per minute of audio
-#[allow(dead_code)]
 pub const FRAMES_PER_MINUTE: u16 = FRAMES_PER_SECOND as u16 * 60;
 
 /// The number of frames in the pregap.
@@ -15,9 +14,7 @@ pub const FRAMES_PER_MINUTE: u16 = FRAMES_PER_SECOND as u16 * 60;
 pub const PREGAP_OFFSET: u8 = FRAMES_PER_SECOND * 2;
 
 /// The maximum number of tracks a CD can hold
-#[allow(dead_code)]
 pub const MAX_TRACKS: u8 = 99;
 
 /// The track number of the leadout section
-#[allow(dead_code)]
 pub const LEADOUT_TRACK_NUM: u8 = 0xAA;

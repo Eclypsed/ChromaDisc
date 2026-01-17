@@ -19,7 +19,7 @@ Compact Discs are defined by a collection of standards called the **Rainbow Book
 
 ## Optical Drive Specifications
 
-Much of the code in this repository is based on various SCSI specifications and are to be referenced where applicable in in rustdoc. Many of these references are the latest official standards and are only available through purchase from their official sources, though older versions of these specs may be avaialble elsewhere.
+Much of the code in this repository is based on various SCSI specifications and are to be referenced where applicable in in rustdoc. Many of these references are the latest official standards and are only available through purchase from their official sources, though older versions of these specs may be available elsewhere.
 
 | Title                       | Abbr. | Designation (latest)             |
 | --------------------------- | ----- | -------------------------------- |

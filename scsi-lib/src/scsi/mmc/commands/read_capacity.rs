@@ -1,26 +1,24 @@
 use thiserror::Error;
 
-use crate::addressing::{AddressError, Lba};
+use crate::core::addressing::{AddressError, Lba};
 
 use super::{Command, Control};
 
-const RESPONSE_LENGTH: usize = 8;
+const MIN_RESPONSE_LENGTH: usize = 8;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("READ CAPACITY Response must be at least {size} bytes long, received {0}", size = RESPONSE_LENGTH)]
+    #[error("READ CAPACITY Response must be at least {size} bytes long, received {0}", size = MIN_RESPONSE_LENGTH)]
     IncompleteResponse(usize),
     #[error(transparent)]
     InvalidLBA(#[from] AddressError<Lba>),
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ReadCapacity {
     control: Control,
 }
 
-#[allow(dead_code)]
 impl ReadCapacity {
     pub fn new(control: Control) -> Self {
         Self { control }
@@ -47,12 +45,11 @@ impl Command<10> for ReadCapacity {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ReadCapacityResponse {
-    lba: Lba,
+    pub lba: Lba,
     // This SHOULD be 2048
-    block_length_bytes: u32,
+    pub block_length_bytes: u32,
 }
 
 impl TryFrom<Vec<u8>> for ReadCapacityResponse {
@@ -61,7 +58,7 @@ impl TryFrom<Vec<u8>> for ReadCapacityResponse {
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         let res_len = value.len();
 
-        if res_len < RESPONSE_LENGTH {
+        if res_len < MIN_RESPONSE_LENGTH {
             return Err(Error::IncompleteResponse(res_len));
         }
 

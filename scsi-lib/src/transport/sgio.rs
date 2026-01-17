@@ -1,7 +1,5 @@
 use std::{
     ffi::{c_uchar, c_void},
-    fs::File,
-    os::fd::AsRawFd,
     ptr,
 };
 
@@ -9,7 +7,9 @@ use nix::ioctl_read_bad;
 use num_enum::TryFromPrimitive;
 use thiserror::Error;
 
-use crate::{commands::Command, error::MMCError};
+use crate::scsi::mmc::commands::Command;
+
+use super::error::MMCError;
 
 #[derive(Debug, Error)]
 pub enum SCSIError {
@@ -43,7 +43,6 @@ pub enum SCSIError {
 const SG_IO: u64 = 0x2285;
 
 #[repr(i32)]
-#[allow(dead_code)]
 pub enum DxferDirection {
     /// SCSI Test Unit Ready command
     None = -1,
@@ -102,7 +101,7 @@ struct SgIoHeader {
 ioctl_read_bad!(ioctl_sg_io, SG_IO, SgIoHeader);
 
 pub fn run_sgio<Cmd: Command<CMD_LEN>, const CMD_LEN: usize>(
-    file: &File,
+    fd: i32,
     cmd: Cmd,
     dxfer_direction: DxferDirection,
 ) -> Result<Vec<u8>, SCSIError> {
@@ -150,7 +149,7 @@ pub fn run_sgio<Cmd: Command<CMD_LEN>, const CMD_LEN: usize>(
     };
 
     unsafe {
-        ioctl_sg_io(file.as_raw_fd(), &mut header)?;
+        ioctl_sg_io(fd, &mut header)?;
     }
 
     let Ok(status) = StatusCondition::try_from_primitive(header.masked_status) else {

@@ -1,14 +1,13 @@
 use std::{
     cmp::Ordering,
     fmt::{self, Display},
+    ops::{Add, AddAssign, Sub, SubAssign},
 };
 
-use derive_more::{
-    Add, AddAssign, Display, Div, DivAssign, Into, Mul, MulAssign, Neg, Sub, SubAssign,
-};
+use derive_more::{Display, Into};
 use thiserror::Error;
 
-use crate::constants::PREGAP_OFFSET;
+use crate::core::constants::PREGAP_OFFSET;
 
 mod sealed {
     use std::fmt::Debug;
@@ -19,6 +18,7 @@ mod sealed {
 }
 
 pub trait Address: sealed::Sealed + Copy + Display {
+    const ZERO: Self;
     const MIN: Self;
     const MAX: Self;
 }
@@ -33,26 +33,7 @@ pub enum AddressError<Addr: Address> {
 ///
 /// The LBA is the number that a Host uses to reference Logical Blocks on a block storage device.
 #[repr(transparent)]
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Display,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Into,
-    Add,
-    AddAssign,
-    Sub,
-    SubAssign,
-    Mul,
-    MulAssign,
-    Div,
-    DivAssign,
-    Neg,
-)]
+#[derive(Clone, Copy, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Into)]
 pub struct Lba(i32);
 
 /// Creates an LBA from a constant expression. Will result in a compile error if the expression is
@@ -60,7 +41,7 @@ pub struct Lba(i32);
 macro_rules! lba {
     ($e:expr) => {
         const {
-            match $crate::Lba::try_from_i32($e) {
+            match $crate::core::addressing::Lba::try_from_i32($e) {
                 Ok(v) => v,
                 Err(_) => panic!("LBA must be in range -451150..=404849"),
             }
@@ -100,6 +81,7 @@ impl sealed::Sealed for Lba {
 }
 
 impl Address for Lba {
+    const ZERO: Self = lba!(0);
     const MIN: Self = lba!(Self::MIN_RAW);
     const MAX: Self = lba!(Self::MAX_RAW);
 }
@@ -110,6 +92,45 @@ impl TryFrom<i32> for Lba {
     #[inline]
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         Self::try_from_i32(value)
+    }
+}
+
+// Why derive the LBA's Add/Sub traits for i32 instead of LBA?
+// Well, because conceptually, an LBA represents an ADDRESS not some sort of scalar value. It
+// doesn't make much sense to ask, "What is Appartment A + Appartment G?" but, "What is 5 doors
+// down from Appartment A?" makes perfect sense. You can also think of it like a memory address,
+// but pointing to a place on the disc. The same reasons pointer arithmetic is done between memory
+// addresses and scalars applies here.
+
+impl Add<i32> for Lba {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: i32) -> Self::Output {
+        Self::new_unchecked(self.0 + rhs)
+    }
+}
+
+impl AddAssign<i32> for Lba {
+    #[inline]
+    fn add_assign(&mut self, rhs: i32) {
+        *self = *self + rhs
+    }
+}
+
+impl Sub<i32> for Lba {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, rhs: i32) -> Self::Output {
+        Self::new_unchecked(self.0 - rhs)
+    }
+}
+
+impl SubAssign<i32> for Lba {
+    #[inline]
+    fn sub_assign(&mut self, rhs: i32) {
+        *self = *self - rhs
     }
 }
 
@@ -145,6 +166,7 @@ impl sealed::Sealed for Msf {
 }
 
 impl Address for Msf {
+    const ZERO: Self = Self::new_unchecked(0, 0, 0);
     const MIN: Self = Self::new_unchecked(0, 0, 0);
     const MAX: Self = Self::new_unchecked(Self::MAX_MIN, Self::MAX_SEC, Self::MAX_FRAME);
 }
