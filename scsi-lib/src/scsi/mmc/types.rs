@@ -1,5 +1,7 @@
+use bitflags::bitflags;
+
 pub mod q_subchannel {
-    use bitflags::bitflags;
+    use super::bitflags;
     use num_enum::TryFromPrimitive;
 
     /// 4 bits of identification for DATA-Q. This is also known as the Mode (ADR) Q.
