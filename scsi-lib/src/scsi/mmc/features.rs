@@ -2,9 +2,8 @@ use std::fmt::Debug;
 
 use bitflags::bitflags;
 use i24::U24;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
-
-use crate::core::util::BitReader;
 
 use super::types::{LoadingMechanism, PhysicalInterfaceStandard, Profile};
 
@@ -15,9 +14,10 @@ pub enum FeatureError {
     #[error("Feature Descriptor specified {expected} bytes of feature data, received {received}")]
     MissingData { expected: usize, received: usize },
     #[error(
-        "Feature can only have {expected} bytes of feature data, Descriptor specified {received}"
+        "{feature} Feature can only have {expected} bytes of feature data, Descriptor specified {received}"
     )]
     DataSize {
+        feature: String,
         expected: parsing::DataSize,
         received: usize,
     },
@@ -25,59 +25,190 @@ pub enum FeatureError {
 
 const HEADER_LEN: usize = 4;
 
+/// A set of the defined feature codes.
+///
+/// See MMC-6 §5.3.2, Table 92.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+#[repr(u16)]
+#[non_exhaustive]
+pub enum FeatureCode {
+    ProfileList = 0x0000,
+    Core = 0x00001,
+    Morphing = 0x0002,
+    RemovableMedium = 0x0003,
+    WriteProtect = 0x0004,
+    RandomReadable = 0x0010,
+    MultiRead = 0x001D,
+    CdRead = 0x001E,
+    DvdRead = 0x001F,
+    RandomWritable = 0x0020,
+    IncrementalStreamingWritable = 0x0021,
+    SectorErasable = 0x0022,
+    Formattable = 0x0023,
+    HardwareDefectManagement = 0x0024,
+    WriteOnce = 0x0025,
+    RestrictedOverwrite = 0x0026,
+    CdRwCavWrite = 0x0027,
+    Mrw = 0x0028,
+    EnhancedDefectReporting = 0x0029,
+    DvdPlusRw = 0x002A,
+    DvdPlusR = 0x002B,
+    RigidRestrictedOverwrite = 0x002C,
+    CdTrackAtOnce = 0x002D,
+    CdMastering = 0x002E,
+    DvdRRwWrite = 0x002F,
+    DoubleDensityCdRead = 0x0030,
+    DoubleDensityCdRWrite = 0x0031,
+    DoubleDensityCdRwWrite = 0x0032,
+    LayerJumpRecording = 0x0033,
+    LayerJumpRigidRestrictedOverwrite = 0x0034,
+    StopLongOperation = 0x0035,
+    CdRwMediaWriteSupport = 0x0037,
+    BdRPow = 0x0038,
+    DvdPlusRwDualLayer = 0x003A,
+    DvdPlusRDualLayer = 0x003B,
+    BdRead = 0x0040,
+    BdWrite = 0x0041,
+    Tsr = 0x0042,
+    HdDvdRead = 0x0050,
+    HdDvdWrite = 0x0051,
+    HdDvdRwFragmentRecording = 0x0052,
+    HybridDisc = 0x0080,
+    PowerManagement = 0x0100,
+    Smart = 0x0101,
+    EmbeddedChanger = 0x0102,
+    CdAudioExternalPlay = 0x0103,
+    MicrocodeUpgrade = 0x0104,
+    Timeout = 0x0105,
+    DvdCss = 0x0106,
+    RealTimeStreaming = 0x0107,
+    DriveSerialNumber = 0x0108,
+    MediaSerialNumber = 0x0109,
+    DiscControlBlocks = 0x010A,
+    DvdCprm = 0x010B,
+    FirmwareInformation = 0x010C,
+    Aacs = 0x010D,
+    DvdCssManagedRecording = 0x010E,
+    Vcps = 0x0110,
+    SecurDisc = 0x0113,
+    Ossc = 0x0142,
+}
+
+/// A set of the defined feature descriptors as well as a catch-all unknown descriptor for vendor
+/// specific or otherwise unknown descriptors.
+///
+/// See MMC-6 §5.2
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum MmcFeature {
+    ProfileList(ProfileList),
+    Core(Core),
+    Morphing(Morphing),
+    RemovableMedium(RemovableMedium),
+    WriteProtect(WriteProtect),
+    RandomReadable(RandomReadable),
+    MultiRead(MultiRead),
+    CdRead(CdRead),
+    DvdRead(DvdRead),
+    RandomWritable(RandomWritable),
+    IncrementalStreamingWritable(IncrementalStreamingWritable),
+    SectorErasable(SectorErasable),
+    Formattable(Formattable),
+    HardwareDefectManagement(HardwareDefectManagement),
+    WriteOnce(WriteOnce),
+    RestrictedOverwrite(RestrictedOverwrite),
+    CdRwCavWrite(CdRwCavWrite),
+    Mrw(Mrw),
+    EnhancedDefectReporting(EnhancedDefectReporting),
+    DvdPlusRw(DvdPlusRw),
+    DvdPlusR(DvdPlusR),
+    RigidRestrictedOverwrite(RigidRestrictedOverwrite),
+    CdTrackAtOnce(CdTrackAtOnce),
+    CdMastering(CdMastering),
+    DvdRRwWrite(DvdRRwWrite),
+    DoubleDensityCdRead(DoubleDensityCdRead),
+    DoubleDensityCdRWrite(DoubleDensityCdRWrite),
+    DoubleDensityCdRwWrite(DoubleDensityCdRwWrite),
+    LayerJumpRecording(LayerJumpRecording),
+    LayerJumpRigidRestrictedOverwrite(LayerJumpRigidRestrictedOverwrite),
+    StopLongOperation(StopLongOperation),
+    CdRwMediaWriteSupport(CdRwMediaWriteSupport),
+    BdRPow(BdRPow),
+    DvdPlusRwDualLayer(DvdPlusRwDualLayer),
+    DvdPlusRDualLayer(DvdPlusRDualLayer),
+    BdRead(BdRead),
+    BdWrite(BdWrite),
+    Tsr(Tsr),
+    HdDvdRead(HdDvdRead),
+    HdDvdWrite(HdDvdWrite),
+    HdDvdRwFragmentRecording(HdDvdRwFragmentRecording),
+    HybridDisc(HybridDisc),
+    PowerManagement(PowerManagement),
+    Smart(Smart),
+    EmbeddedChanger(EmbeddedChanger),
+    CdAudioExternalPlay(CdAudioExternalPlay),
+    MicrocodeUpgrade(MicrocodeUpgrade),
+    Timeout(Timeout),
+    DvdCss(DvdCss),
+    RealTimeStreaming(RealTimeStreaming),
+    DriveSerialNumber(DriveSerialNumber),
+    MediaSerialNumber(MediaSerialNumber),
+    DiscControlBlocks(DiscControlBlocks),
+    DvdCprm(DvdCprm),
+    FirmwareInformation(FirmwareInformation),
+    Aacs(Aacs),
+    DvdCssManagedRecording(DvdCssManagedRecording),
+    Vcps(Vcps),
+    SecurDisc(SecurDisc),
+    Ossc(Ossc),
+    Unknown {
+        feature_code: u16,
+        version: u8,
+        persistent: bool,
+        current: bool,
+        data: Vec<u8>,
+    },
+}
+
 #[derive(Debug)]
 struct FeatureHeader {
-    feature_code: u16,
     pub version: u8,
     pub persistent: bool,
     pub current: bool,
-    additional_length: u8,
 }
 
-impl FeatureHeader {
-    fn parse(bytes: &[u8; HEADER_LEN]) -> Self {
-        let flags = BitReader(bytes[2]);
+macro_rules! impl_feature {
+    ($t:ty, $name:literal, $code:expr) => {
+        impl FeatureDescriptor for $t {
+            const NAME: &'static str = $name;
+            const CODE: FeatureCode = $code;
 
-        FeatureHeader {
-            feature_code: u16::from_be_bytes(bytes[0..2].try_into().unwrap()),
-            version: (bytes[2] & 0b00111100) >> 2,
-            persistent: flags.bit(0b00000010),
-            current: flags.bit(0b00000001),
-            additional_length: bytes[3],
-        }
-    }
-}
+            fn version(&self) -> u8 {
+                self.header.version
+            }
 
-trait HasFeatureHeader {
-    fn header(&self) -> &FeatureHeader;
-}
+            fn persistent(&self) -> bool {
+                self.header.persistent
+            }
 
-macro_rules! impl_feature_header {
-    ($t:ty) => {
-        impl HasFeatureHeader for $t {
-            fn header(&self) -> &FeatureHeader {
-                &self.header
+            fn current(&self) -> bool {
+                self.header.current
             }
         }
     };
 }
 
-#[allow(private_bounds)]
-pub trait MmcFeature: HasFeatureHeader + Debug {
-    fn version(&self) -> u8 {
-        self.header().version
-    }
+/// A trait representing the generic descriptor properties
+///
+/// See MMC-6 §5.2.2
+pub trait FeatureDescriptor: Debug {
+    const NAME: &'static str;
+    const CODE: FeatureCode;
 
-    fn persistent(&self) -> bool {
-        self.header().persistent
-    }
-
-    fn current(&self) -> bool {
-        self.header().current
-    }
+    fn version(&self) -> u8;
+    fn persistent(&self) -> bool;
+    fn current(&self) -> bool;
 }
-
-impl<T: HasFeatureHeader + Debug> MmcFeature for T {}
 
 /// A 4-byte block representing a specific Profile.
 ///
@@ -86,19 +217,6 @@ impl<T: HasFeatureHeader + Debug> MmcFeature for T {}
 pub struct ProfileDescriptor {
     pub profile_number: Profile,
     pub current_p: bool,
-}
-
-impl ProfileDescriptor {
-    const LEN: usize = 4;
-
-    fn parse(value: &[u8; Self::LEN]) -> Self {
-        let flags = BitReader(value[2]);
-
-        Self {
-            profile_number: Profile::from(u16::from_be_bytes([value[0], value[1]])),
-            current_p: flags.bit(0b00000001),
-        }
-    }
 }
 
 bitflags! {
@@ -793,76 +911,190 @@ pub struct Ossc {
     pub profile_numbers: Vec<u16>,
 }
 
-/// Struct representing an unknown feature descriptor. Could be a Vendor Specific, Reserved, or
-/// otherwise Unimplemented Feature.
-#[derive(Debug)]
-pub struct UnknownFeature {
-    pub feature_code: u16,
-    header: FeatureHeader,
-    pub data: Vec<u8>,
-}
-
-impl_feature_header!(ProfileList);
-impl_feature_header!(Core);
-impl_feature_header!(Morphing);
-impl_feature_header!(RemovableMedium);
-impl_feature_header!(WriteProtect);
-impl_feature_header!(RandomReadable);
-impl_feature_header!(MultiRead);
-impl_feature_header!(CdRead);
-impl_feature_header!(DvdRead);
-impl_feature_header!(RandomWritable);
-impl_feature_header!(IncrementalStreamingWritable);
-impl_feature_header!(SectorErasable);
-impl_feature_header!(Formattable);
-impl_feature_header!(HardwareDefectManagement);
-impl_feature_header!(WriteOnce);
-impl_feature_header!(RestrictedOverwrite);
-impl_feature_header!(CdRwCavWrite);
-impl_feature_header!(Mrw);
-impl_feature_header!(EnhancedDefectReporting);
-impl_feature_header!(DvdPlusRw);
-impl_feature_header!(DvdPlusR);
-impl_feature_header!(RigidRestrictedOverwrite);
-impl_feature_header!(CdTrackAtOnce);
-impl_feature_header!(CdMastering);
-impl_feature_header!(DvdRRwWrite);
-impl_feature_header!(DoubleDensityCdRead);
-impl_feature_header!(DoubleDensityCdRWrite);
-impl_feature_header!(DoubleDensityCdRwWrite);
-impl_feature_header!(LayerJumpRecording);
-impl_feature_header!(LayerJumpRigidRestrictedOverwrite);
-impl_feature_header!(StopLongOperation);
-impl_feature_header!(CdRwMediaWriteSupport);
-impl_feature_header!(BdRPow);
-impl_feature_header!(DvdPlusRwDualLayer);
-impl_feature_header!(DvdPlusRDualLayer);
-impl_feature_header!(BdRead);
-impl_feature_header!(BdWrite);
-impl_feature_header!(Tsr);
-impl_feature_header!(HdDvdRead);
-impl_feature_header!(HdDvdWrite);
-impl_feature_header!(HdDvdRwFragmentRecording);
-impl_feature_header!(HybridDisc);
-impl_feature_header!(PowerManagement);
-impl_feature_header!(Smart);
-impl_feature_header!(EmbeddedChanger);
-impl_feature_header!(CdAudioExternalPlay);
-impl_feature_header!(MicrocodeUpgrade);
-impl_feature_header!(Timeout);
-impl_feature_header!(DvdCss);
-impl_feature_header!(RealTimeStreaming);
-impl_feature_header!(DriveSerialNumber);
-impl_feature_header!(MediaSerialNumber);
-impl_feature_header!(DiscControlBlocks);
-impl_feature_header!(DvdCprm);
-impl_feature_header!(FirmwareInformation);
-impl_feature_header!(Aacs);
-impl_feature_header!(DvdCssManagedRecording);
-impl_feature_header!(Vcps);
-impl_feature_header!(SecurDisc);
-impl_feature_header!(Ossc);
-impl_feature_header!(UnknownFeature);
+impl_feature!(ProfileList, "Profile List", FeatureCode::ProfileList);
+impl_feature!(Core, "Core", FeatureCode::Core);
+impl_feature!(Morphing, "Morphing", FeatureCode::Morphing);
+impl_feature!(
+    RemovableMedium,
+    "Removable Medium",
+    FeatureCode::RemovableMedium
+);
+impl_feature!(WriteProtect, "Write Protect", FeatureCode::WriteProtect);
+impl_feature!(
+    RandomReadable,
+    "Random Readable",
+    FeatureCode::RandomReadable
+);
+impl_feature!(MultiRead, "Multi-Read", FeatureCode::MultiRead);
+impl_feature!(CdRead, "CD Read", FeatureCode::CdRead);
+impl_feature!(DvdRead, "DVD Read", FeatureCode::DvdRead);
+impl_feature!(
+    RandomWritable,
+    "Random Writable",
+    FeatureCode::RandomWritable
+);
+impl_feature!(
+    IncrementalStreamingWritable,
+    "Incremental Streaming Writable",
+    FeatureCode::IncrementalStreamingWritable
+);
+impl_feature!(
+    SectorErasable,
+    "Sector Erasable",
+    FeatureCode::SectorErasable
+);
+impl_feature!(Formattable, "Formattable", FeatureCode::Formattable);
+impl_feature!(
+    HardwareDefectManagement,
+    "Hardware Defect Management",
+    FeatureCode::HardwareDefectManagement
+);
+impl_feature!(WriteOnce, "Write Once", FeatureCode::WriteOnce);
+impl_feature!(
+    RestrictedOverwrite,
+    "Restricted Overwrite",
+    FeatureCode::RestrictedOverwrite
+);
+impl_feature!(CdRwCavWrite, "CD-RW CAV Write", FeatureCode::CdRwCavWrite);
+impl_feature!(Mrw, "MRW", FeatureCode::Mrw);
+impl_feature!(
+    EnhancedDefectReporting,
+    "Enhanced Defect Reporting",
+    FeatureCode::EnhancedDefectReporting
+);
+impl_feature!(DvdPlusRw, "DVD+RW", FeatureCode::DvdPlusRw);
+impl_feature!(DvdPlusR, "DVD+R", FeatureCode::DvdPlusR);
+impl_feature!(
+    RigidRestrictedOverwrite,
+    "Rigid Restricted Overwrite",
+    FeatureCode::RigidRestrictedOverwrite
+);
+impl_feature!(
+    CdTrackAtOnce,
+    "CD Track at Once",
+    FeatureCode::CdTrackAtOnce
+);
+impl_feature!(
+    CdMastering,
+    "CD Mastering (Session at Once)",
+    FeatureCode::CdMastering
+);
+impl_feature!(DvdRRwWrite, "DVD-R/-RW Write", FeatureCode::DvdRRwWrite);
+impl_feature!(
+    DoubleDensityCdRead,
+    "Double Density CD Read",
+    FeatureCode::DoubleDensityCdRead
+);
+impl_feature!(
+    DoubleDensityCdRWrite,
+    "Double Density CD-R Write",
+    FeatureCode::DoubleDensityCdRWrite
+);
+impl_feature!(
+    DoubleDensityCdRwWrite,
+    "Double Density CD-RW Write",
+    FeatureCode::DoubleDensityCdRwWrite
+);
+impl_feature!(
+    LayerJumpRecording,
+    "Layer Jump Recording",
+    FeatureCode::LayerJumpRecording
+);
+impl_feature!(
+    LayerJumpRigidRestrictedOverwrite,
+    "Layer Jump Rigid Restricted Overwrite",
+    FeatureCode::LayerJumpRigidRestrictedOverwrite
+);
+impl_feature!(
+    StopLongOperation,
+    "Stop Long Operation",
+    FeatureCode::StopLongOperation
+);
+impl_feature!(
+    CdRwMediaWriteSupport,
+    "CD-RW Media Write Support",
+    FeatureCode::CdRwMediaWriteSupport
+);
+impl_feature!(BdRPow, "BD-R Pseudo-Overwrite (POW)", FeatureCode::BdRPow);
+impl_feature!(
+    DvdPlusRwDualLayer,
+    "DVD+RW Dual Layer",
+    FeatureCode::DvdPlusRwDualLayer
+);
+impl_feature!(
+    DvdPlusRDualLayer,
+    "DVD+R Dual Layer",
+    FeatureCode::DvdPlusRDualLayer
+);
+impl_feature!(BdRead, "BD Read", FeatureCode::BdRead);
+impl_feature!(BdWrite, "BD Write", FeatureCode::BdWrite);
+impl_feature!(Tsr, "TSR", FeatureCode::Tsr);
+impl_feature!(HdDvdRead, "HD DVD Read", FeatureCode::HdDvdRead);
+impl_feature!(HdDvdWrite, "HD DVD Write", FeatureCode::HdDvdWrite);
+impl_feature!(
+    HdDvdRwFragmentRecording,
+    "HD DVD-RW Fragment Recording",
+    FeatureCode::HdDvdRwFragmentRecording
+);
+impl_feature!(HybridDisc, "Hybrid Disc", FeatureCode::HybridDisc);
+impl_feature!(
+    PowerManagement,
+    "Power Management",
+    FeatureCode::PowerManagement
+);
+impl_feature!(Smart, "S.M.A.R.T.", FeatureCode::Smart);
+impl_feature!(
+    EmbeddedChanger,
+    "Embedded Changer",
+    FeatureCode::EmbeddedChanger
+);
+impl_feature!(
+    CdAudioExternalPlay,
+    "CD Audio External Play",
+    FeatureCode::CdAudioExternalPlay
+);
+impl_feature!(
+    MicrocodeUpgrade,
+    "Microcode Upgrade",
+    FeatureCode::MicrocodeUpgrade
+);
+impl_feature!(Timeout, "Timeout", FeatureCode::Timeout);
+impl_feature!(DvdCss, "DVD CSS", FeatureCode::DvdCss);
+impl_feature!(
+    RealTimeStreaming,
+    "Real Time Streaming",
+    FeatureCode::RealTimeStreaming
+);
+impl_feature!(
+    DriveSerialNumber,
+    "Drive Serial Number",
+    FeatureCode::DriveSerialNumber
+);
+impl_feature!(
+    MediaSerialNumber,
+    "Media Serial Number",
+    FeatureCode::MediaSerialNumber
+);
+impl_feature!(
+    DiscControlBlocks,
+    "Disc Control Blocks (DCBs)",
+    FeatureCode::DiscControlBlocks
+);
+impl_feature!(DvdCprm, "DVD CPRM", FeatureCode::DvdCprm);
+impl_feature!(
+    FirmwareInformation,
+    "Firmware Information",
+    FeatureCode::FirmwareInformation
+);
+impl_feature!(Aacs, "AACS", FeatureCode::Aacs);
+impl_feature!(
+    DvdCssManagedRecording,
+    "DVD CSS Managed Recording",
+    FeatureCode::DvdCssManagedRecording
+);
+impl_feature!(Vcps, "VCPS", FeatureCode::Vcps);
+impl_feature!(SecurDisc, "SecurDisc", FeatureCode::SecurDisc);
+impl_feature!(Ossc, "OSSC", FeatureCode::Ossc);
 
 pub struct FeatureParser<'a> {
     bytes: &'a [u8],
@@ -875,22 +1107,20 @@ impl<'a> FeatureParser<'a> {
 }
 
 impl<'a> Iterator for FeatureParser<'a> {
-    type Item = Box<dyn MmcFeature>;
+    type Item = MmcFeature;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.bytes.is_empty() {
-            return None;
-        }
+        let _ = self.bytes.get(..HEADER_LEN)?;
 
-        let res = parsing::parse_descriptor(self.bytes);
+        let desc_len = HEADER_LEN + usize::from(self.bytes[3]); // Additional Length
+        let desc_bytes = self.bytes.get(..desc_len)?;
+
+        let res = parsing::parse_descriptor(desc_bytes);
 
         if let Ok(feature) = res {
-            let data_len: usize = feature.header().additional_length.into();
-            let bytes_read = HEADER_LEN + data_len;
-            self.bytes = self.bytes.get(bytes_read..).unwrap_or(&[]);
+            self.bytes = self.bytes.get(desc_len..).unwrap_or(&[]);
             Some(feature)
         } else {
-            self.bytes = &[];
             None
         }
     }
@@ -922,7 +1152,7 @@ mod parsing {
         }
     }
 
-    trait ParseFeature: HasFeatureHeader + Sized {
+    trait ParseFeature: FeatureDescriptor + Sized {
         const DATA_LEN: DataSize;
 
         fn parse(header: FeatureHeader, data: &[u8]) -> Self;
@@ -933,8 +1163,11 @@ mod parsing {
 
         fn parse(header: FeatureHeader, data: &[u8]) -> Self {
             let profile_descriptors = data
-                .chunks_exact(ProfileDescriptor::LEN)
-                .map(|c| ProfileDescriptor::parse(c.try_into().unwrap()))
+                .chunks_exact(4)
+                .map(|c| ProfileDescriptor {
+                    profile_number: Profile::from(u16::from_be_bytes([c[0], c[1]])),
+                    current_p: BitReader(c[2]).bit(0b00000001),
+                })
                 .collect::<Vec<ProfileDescriptor>>();
 
             Self {
@@ -1737,6 +1970,7 @@ mod parsing {
 
         if !T::DATA_LEN.cmp_size(num_bytes) {
             return Err(FeatureError::DataSize {
+                feature: T::NAME.to_string(),
                 expected: T::DATA_LEN,
                 received: num_bytes,
             });
@@ -1745,90 +1979,120 @@ mod parsing {
         Ok(T::parse(header, data_bytes))
     }
 
-    pub fn parse_descriptor(bytes: &[u8]) -> Result<Box<dyn MmcFeature>, FeatureError> {
+    macro_rules! map_feature {
+        ($code:expr, $header:expr, $data:expr, {
+            $($ft:ty => $variant:expr),* $(,)?
+        }) => {
+            match $code {
+                $(
+                    <$ft>::CODE => $variant(
+                        parse_feature::<$ft>($header, $data)?
+                    )
+                ),*
+            }
+        };
+    }
+
+    pub fn parse_descriptor(bytes: &[u8]) -> Result<MmcFeature, FeatureError> {
         if bytes.len() < HEADER_LEN {
             return Err(FeatureError::DescriptorSize);
         }
 
-        let header = FeatureHeader::parse(bytes[0..HEADER_LEN].try_into().unwrap());
+        let feature_code = u16::from_be_bytes([bytes[0], bytes[1]]);
+        let version = (bytes[2] & 0b00111100) >> 2;
+
+        let flags = BitReader(bytes[2]);
+        let persistent = flags.bit(0b00000010);
+        let current = flags.bit(0b00000001);
+
+        let additional_length: usize = bytes[3].into();
+
+        let header = FeatureHeader {
+            version,
+            persistent,
+            current,
+        };
 
         let data = bytes.get(HEADER_LEN..).unwrap_or(&[]);
 
-        let Some(data) = data.get(..usize::from(header.additional_length)) else {
+        let Some(data) = data.get(..additional_length) else {
             return Err(FeatureError::MissingData {
-                expected: header.additional_length.into(),
+                expected: additional_length,
                 received: data.len(),
             });
         };
 
-        Ok(match header.feature_code {
-            0x0000 => Box::new(parse_feature::<ProfileList>(header, data)?),
-            0x0001 => Box::new(parse_feature::<Core>(header, data)?),
-            0x0002 => Box::new(parse_feature::<Morphing>(header, data)?),
-            0x0003 => Box::new(parse_feature::<RemovableMedium>(header, data)?),
-            0x0004 => Box::new(parse_feature::<WriteProtect>(header, data)?),
-            0x0010 => Box::new(parse_feature::<RandomReadable>(header, data)?),
-            0x001D => Box::new(parse_feature::<MultiRead>(header, data)?),
-            0x001E => Box::new(parse_feature::<CdRead>(header, data)?),
-            0x001F => Box::new(parse_feature::<DvdRead>(header, data)?),
-            0x0020 => Box::new(parse_feature::<RandomWritable>(header, data)?),
-            0x0021 => Box::new(parse_feature::<IncrementalStreamingWritable>(header, data)?),
-            0x0022 => Box::new(parse_feature::<SectorErasable>(header, data)?),
-            0x0023 => Box::new(parse_feature::<Formattable>(header, data)?),
-            0x0024 => Box::new(parse_feature::<HardwareDefectManagement>(header, data)?),
-            0x0025 => Box::new(parse_feature::<WriteOnce>(header, data)?),
-            0x0026 => Box::new(parse_feature::<RestrictedOverwrite>(header, data)?),
-            0x0027 => Box::new(parse_feature::<CdRwCavWrite>(header, data)?),
-            0x0028 => Box::new(parse_feature::<Mrw>(header, data)?),
-            0x0029 => Box::new(parse_feature::<EnhancedDefectReporting>(header, data)?),
-            0x002A => Box::new(parse_feature::<DvdPlusRw>(header, data)?),
-            0x002B => Box::new(parse_feature::<DvdPlusR>(header, data)?),
-            0x002C => Box::new(parse_feature::<RigidRestrictedOverwrite>(header, data)?),
-            0x002D => Box::new(parse_feature::<CdTrackAtOnce>(header, data)?),
-            0x002E => Box::new(parse_feature::<CdMastering>(header, data)?),
-            0x002F => Box::new(parse_feature::<DvdRRwWrite>(header, data)?),
-            0x0030 => Box::new(parse_feature::<DoubleDensityCdRead>(header, data)?),
-            0x0031 => Box::new(parse_feature::<DoubleDensityCdRWrite>(header, data)?),
-            0x0032 => Box::new(parse_feature::<DoubleDensityCdRwWrite>(header, data)?),
-            0x0033 => Box::new(parse_feature::<LayerJumpRecording>(header, data)?),
-            0x0034 => Box::new(parse_feature::<LayerJumpRigidRestrictedOverwrite>(
-                header, data,
-            )?),
-            0x0035 => Box::new(parse_feature::<StopLongOperation>(header, data)?),
-            0x0037 => Box::new(parse_feature::<CdRwMediaWriteSupport>(header, data)?),
-            0x0038 => Box::new(parse_feature::<BdRPow>(header, data)?),
-            0x003A => Box::new(parse_feature::<DvdPlusRwDualLayer>(header, data)?),
-            0x003B => Box::new(parse_feature::<DvdPlusRDualLayer>(header, data)?),
-            0x0040 => Box::new(parse_feature::<BdRead>(header, data)?),
-            0x0041 => Box::new(parse_feature::<BdWrite>(header, data)?),
-            0x0042 => Box::new(parse_feature::<Tsr>(header, data)?),
-            0x0050 => Box::new(parse_feature::<HdDvdRead>(header, data)?),
-            0x0051 => Box::new(parse_feature::<HdDvdWrite>(header, data)?),
-            0x0052 => Box::new(parse_feature::<HdDvdRwFragmentRecording>(header, data)?),
-            0x0080 => Box::new(parse_feature::<HybridDisc>(header, data)?),
-            0x0100 => Box::new(parse_feature::<PowerManagement>(header, data)?),
-            0x0101 => Box::new(parse_feature::<Smart>(header, data)?),
-            0x0102 => Box::new(parse_feature::<EmbeddedChanger>(header, data)?),
-            0x0103 => Box::new(parse_feature::<CdAudioExternalPlay>(header, data)?),
-            0x0104 => Box::new(parse_feature::<MicrocodeUpgrade>(header, data)?),
-            0x0105 => Box::new(parse_feature::<Timeout>(header, data)?),
-            0x0106 => Box::new(parse_feature::<DvdCss>(header, data)?),
-            0x0107 => Box::new(parse_feature::<RealTimeStreaming>(header, data)?),
-            0x0108 => Box::new(parse_feature::<DriveSerialNumber>(header, data)?),
-            0x0109 => Box::new(parse_feature::<MediaSerialNumber>(header, data)?),
-            0x010A => Box::new(parse_feature::<DiscControlBlocks>(header, data)?),
-            0x010B => Box::new(parse_feature::<DvdCprm>(header, data)?),
-            0x010C => Box::new(parse_feature::<FirmwareInformation>(header, data)?),
-            0x010D => Box::new(parse_feature::<Aacs>(header, data)?),
-            0x010E => Box::new(parse_feature::<DvdCssManagedRecording>(header, data)?),
-            0x0110 => Box::new(parse_feature::<Vcps>(header, data)?),
-            0x0113 => Box::new(parse_feature::<SecurDisc>(header, data)?),
-            0x0142 => Box::new(parse_feature::<Ossc>(header, data)?),
-            feature_code => Box::new(UnknownFeature {
+        let Ok(feature_code) = FeatureCode::try_from(feature_code) else {
+            return Ok(MmcFeature::Unknown {
                 feature_code,
-                header,
+                version,
+                persistent,
+                current,
                 data: data.to_vec(),
-            }),
-        })
+            });
+        };
+
+        Ok(map_feature!(feature_code, header, data, {
+            ProfileList => MmcFeature::ProfileList,
+            Core => MmcFeature::Core,
+            Morphing => MmcFeature::Morphing,
+            RemovableMedium => MmcFeature::RemovableMedium,
+            WriteProtect => MmcFeature::WriteProtect,
+            RandomReadable => MmcFeature::RandomReadable,
+            MultiRead => MmcFeature::MultiRead,
+            CdRead => MmcFeature::CdRead,
+            DvdRead => MmcFeature::DvdRead,
+            RandomWritable => MmcFeature::RandomWritable,
+            IncrementalStreamingWritable => MmcFeature::IncrementalStreamingWritable,
+            SectorErasable => MmcFeature::SectorErasable,
+            Formattable => MmcFeature::Formattable,
+            HardwareDefectManagement => MmcFeature::HardwareDefectManagement,
+            WriteOnce => MmcFeature::WriteOnce,
+            RestrictedOverwrite => MmcFeature::RestrictedOverwrite,
+            CdRwCavWrite => MmcFeature::CdRwCavWrite,
+            Mrw => MmcFeature::Mrw,
+            EnhancedDefectReporting => MmcFeature::EnhancedDefectReporting,
+            DvdPlusRw => MmcFeature::DvdPlusRw,
+            DvdPlusR => MmcFeature::DvdPlusR,
+            RigidRestrictedOverwrite => MmcFeature::RigidRestrictedOverwrite,
+            CdTrackAtOnce => MmcFeature::CdTrackAtOnce,
+            CdMastering => MmcFeature::CdMastering,
+            DvdRRwWrite => MmcFeature::DvdRRwWrite,
+            DoubleDensityCdRead => MmcFeature::DoubleDensityCdRead,
+            DoubleDensityCdRWrite => MmcFeature::DoubleDensityCdRWrite,
+            DoubleDensityCdRwWrite => MmcFeature::DoubleDensityCdRwWrite,
+            LayerJumpRecording => MmcFeature::LayerJumpRecording,
+            LayerJumpRigidRestrictedOverwrite => MmcFeature::LayerJumpRigidRestrictedOverwrite,
+            StopLongOperation => MmcFeature::StopLongOperation,
+            CdRwMediaWriteSupport => MmcFeature::CdRwMediaWriteSupport,
+            BdRPow => MmcFeature::BdRPow,
+            DvdPlusRwDualLayer => MmcFeature::DvdPlusRwDualLayer,
+            DvdPlusRDualLayer => MmcFeature::DvdPlusRDualLayer,
+            BdRead => MmcFeature::BdRead,
+            BdWrite => MmcFeature::BdWrite,
+            Tsr => MmcFeature::Tsr,
+            HdDvdRead => MmcFeature::HdDvdRead,
+            HdDvdWrite => MmcFeature::HdDvdWrite,
+            HdDvdRwFragmentRecording => MmcFeature::HdDvdRwFragmentRecording,
+            HybridDisc => MmcFeature::HybridDisc,
+            PowerManagement => MmcFeature::PowerManagement,
+            Smart => MmcFeature::Smart,
+            EmbeddedChanger => MmcFeature::EmbeddedChanger,
+            CdAudioExternalPlay => MmcFeature::CdAudioExternalPlay,
+            MicrocodeUpgrade => MmcFeature::MicrocodeUpgrade,
+            Timeout => MmcFeature::Timeout,
+            DvdCss => MmcFeature::DvdCss,
+            RealTimeStreaming => MmcFeature::RealTimeStreaming,
+            DriveSerialNumber => MmcFeature::DriveSerialNumber,
+            MediaSerialNumber => MmcFeature::MediaSerialNumber,
+            DiscControlBlocks => MmcFeature::DiscControlBlocks,
+            DvdCprm => MmcFeature::DvdCprm,
+            FirmwareInformation => MmcFeature::FirmwareInformation,
+            Aacs => MmcFeature::Aacs,
+            DvdCssManagedRecording => MmcFeature::DvdCssManagedRecording,
+            Vcps => MmcFeature::Vcps,
+            SecurDisc => MmcFeature::SecurDisc,
+            Ossc => MmcFeature::Ossc,
+        }))
     }
 }

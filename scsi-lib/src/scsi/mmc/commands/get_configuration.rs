@@ -87,7 +87,7 @@ pub struct GetConfigurationResponse {
     /// The drive's current profile
     pub current_profile: u16,
     /// The list of defined Feature Descriptors this drive is capable of
-    pub descriptors: Vec<Box<dyn MmcFeature>>,
+    pub descriptors: Vec<MmcFeature>,
 }
 
 impl TryFrom<Vec<u8>> for GetConfigurationResponse {
@@ -111,8 +111,7 @@ impl TryFrom<Vec<u8>> for GetConfigurationResponse {
         }
 
         let descriptor_bytes = value.get(FEATURE_HEADER_LENGTH..).unwrap_or(&[]);
-        let descriptors =
-            FeatureParser::new(descriptor_bytes).collect::<Vec<Box<dyn MmcFeature>>>();
+        let descriptors = FeatureParser::new(descriptor_bytes).collect::<Vec<MmcFeature>>();
 
         Ok(Self {
             // data_length,
