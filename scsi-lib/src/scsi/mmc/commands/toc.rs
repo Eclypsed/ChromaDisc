@@ -126,7 +126,6 @@ pub struct TrackDescriptor<Addr: TOCAddr> {
 
 #[derive(Debug)]
 pub struct Toc<Addr: TOCAddr> {
-    // length: u16,
     pub first_track_num: u8,
     pub last_track_num: u8,
     pub track_descriptors: Vec<TrackDescriptor<Addr>>,
@@ -143,7 +142,6 @@ where
             return Err(Error::IncompleteHeader(value.len()));
         }
 
-        // let length = u16::from_be_bytes([value[0], value[1]]);
         let first_track_num = value[2];
         let last_track_num = value[3];
 
@@ -157,7 +155,7 @@ where
             let control = q_subchannel::Control::from_bits_truncate(descriptor[1] & 0x0F);
             let track_num = descriptor[2];
 
-            let start_addr: Addr = Addr::from_be_bytes(&descriptor[4..=7].try_into().unwrap())?;
+            let start_addr: Addr = Addr::from_be_bytes(descriptor[4..=7].try_into().unwrap())?;
 
             track_descriptors.push(TrackDescriptor {
                 adr,
@@ -168,7 +166,6 @@ where
         }
 
         Ok(Toc {
-            // length,
             first_track_num,
             last_track_num,
             track_descriptors,

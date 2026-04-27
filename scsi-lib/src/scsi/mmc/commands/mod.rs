@@ -9,12 +9,12 @@ pub mod toc;
 use derive_more::{Debug, From, Into};
 use thiserror::Error;
 
-use crate::transport::sgio::{DxferDirection, SCSIError, run_sgio};
+use crate::transport::sgio::{run_sgio, DxferDirection, ScsiError};
 
 #[derive(Debug, Error)]
 pub enum ExecuteError<Cmd: Command<N>, const N: usize> {
     #[error(transparent)]
-    SCSIError(#[from] SCSIError),
+    SCSIError(#[from] ScsiError),
     #[error("Failed to parse the response from the command")]
     ParseError(#[source] <Cmd::Response as TryFrom<Vec<u8>>>::Error),
 }

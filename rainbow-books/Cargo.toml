@@ -1,0 +1,8 @@
+[package]
+name = "rainbow-books"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+deku = { version = "0.20.3", features = ["bits"] }

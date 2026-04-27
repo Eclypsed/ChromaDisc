@@ -29,6 +29,17 @@ pub enum AddressError<Addr: Address> {
     OutOfRange(Addr::Raw),
 }
 
+/// Newtype representing an unvalidated Logical Block Address (LBA) as read from a device
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Into)]
+pub struct RawLba(i32);
+
+impl RawLba {
+    pub(crate) fn new(value: i32) -> Self {
+        Self(value)
+    }
+}
+
 /// Newtype representing a Logical Block Address (LBA)
 ///
 /// The LBA is the number that a Host uses to reference Logical Blocks on a block storage device.
@@ -95,6 +106,14 @@ impl TryFrom<i32> for Lba {
     }
 }
 
+impl TryFrom<RawLba> for Lba {
+    type Error = AddressError<Lba>;
+
+    fn try_from(value: RawLba) -> Result<Self, Self::Error> {
+        Lba::try_from_i32(value.0)
+    }
+}
+
 // Why derive the LBA's Add/Sub traits for i32 instead of LBA?
 // Well, because conceptually, an LBA represents an ADDRESS not some sort of scalar value. It
 // doesn't make much sense to ask, "What is Appartment A + Appartment G?" but, "What is 5 doors
@@ -150,6 +169,18 @@ impl From<Msf> for Lba {
     }
 }
 
+fn parse_bcd(byte: u8) -> u8 {
+    ((byte >> 4) & 0xF) * 10 + (byte & 0x0F)
+}
+
+pub struct RawMsf(u8, u8, u8);
+
+impl RawMsf {
+    pub(crate) fn new(min: u8, sec: u8, frame: u8) -> Self {
+        Self(parse_bcd(min), parse_bcd(sec), parse_bcd(frame))
+    }
+}
+
 /// Minute, Second, Frame format
 ///
 /// A time based indexer represented as MM:SS:FF. Indexing is done using the 75 frames per second
@@ -184,12 +215,16 @@ impl Msf {
         Ok(Self::new_unchecked(min, sec, frame))
     }
 
-    const fn new_unchecked(min: u8, sec: u8, frame: u8) -> Self {
-        assert!(min <= Self::MAX_MIN, "minutes out of range");
-        assert!(sec <= Self::MAX_SEC, "seconds out of range");
-        assert!(frame <= Self::MAX_FRAME, "frames out of range");
+    pub const fn new_unchecked(min: u8, sec: u8, frame: u8) -> Self {
+        debug_assert!(min <= Self::MAX_MIN, "minutes out of range");
+        debug_assert!(sec <= Self::MAX_SEC, "seconds out of range");
+        debug_assert!(frame <= Self::MAX_FRAME, "frames out of range");
 
         Self(min, sec, frame)
+    }
+
+    pub fn from_bcd_bytes(min: u8, sec: u8, frame: u8) -> Self {
+        Self(parse_bcd(min), parse_bcd(sec), parse_bcd(frame))
     }
 }
 

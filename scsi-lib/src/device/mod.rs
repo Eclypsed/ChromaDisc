@@ -8,7 +8,7 @@ use const_format::concatcp;
 use nix::fcntl::{OFlag, open};
 use seq_macro::seq;
 
-use crate::scsi::mmc::commands::{execute, inquiry::Inquiry};
+// use crate::scsi::mmc::commands::{execute, inquiry::Inquiry};
 use crate::scsi::mmc::types::spc;
 
 macro_rules! device_files {
@@ -80,23 +80,23 @@ fn scan_sysfs() -> io::Result<Vec<String>> {
     Ok(devnodes)
 }
 
-pub fn get_devices() -> Vec<Drive> {
-    let mut devices = Vec::new();
-
-    for devnode in scan_sysfs().unwrap() {
-        let fd = get_file_descriptor(&devnode).unwrap();
-        let inquiry = Inquiry::new(false, 0, 0.into());
-        let res = execute(inquiry, fd.as_raw_fd()).unwrap();
-
-        devices.push(Drive {
-            devnode,
-            removeable_medium: res.removable_media,
-            spc_version: res.version,
-            vendor: res.t10_vendor_identification,
-            product_id: res.product_identification,
-            revision: res.product_revision_level,
-        });
-    }
-
-    devices
-}
+// pub fn get_devices() -> Vec<Drive> {
+//     let mut devices = Vec::new();
+//
+//     for devnode in scan_sysfs().unwrap() {
+//         let fd = get_file_descriptor(&devnode).unwrap();
+//         let inquiry = Inquiry::new(false, 0, 0.into());
+//         let res = execute(inquiry, fd.as_raw_fd()).unwrap();
+//
+//         devices.push(Drive {
+//             devnode,
+//             removeable_medium: res.removable_media,
+//             spc_version: res.version,
+//             vendor: res.t10_vendor_identification,
+//             product_id: res.product_identification,
+//             revision: res.product_revision_level,
+//         });
+//     }
+//
+//     devices
+// }

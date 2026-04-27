@@ -8,9 +8,11 @@ edition.workspace = true
 array-concat = "0.5.5"
 bitflags = "2.10.0"
 const_format = "0.2.35"
+deku = "0.20.3"
 derive_more = { version = "2.1.1", features = ["full"] }
 i24 = "2.2.7"
 mmc-errors = { path = "../mmc-errors" }
+rainbow-books = { path = "../rainbow-books" }
 nix = { version = "0.30.1", features = ["fs", "ioctl"] }
 num_enum = { version = "0.7.5", features = ["complex-expressions"] }
 seq-macro = "0.3.6"

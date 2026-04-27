@@ -7,12 +7,10 @@ use nix::ioctl_read_bad;
 use num_enum::TryFromPrimitive;
 use thiserror::Error;
 
-use crate::scsi::mmc::commands::Command;
-
 use super::error::MMCError;
 
 #[derive(Debug, Error)]
-pub enum SCSIError {
+pub enum ScsiError {
     #[error("CDB must be < 256 bytes in length, received: {0}")]
     InvalidCDB(usize),
     #[error("Data must be < 2^32 bytes in length, received: {0}")]
@@ -100,27 +98,25 @@ struct SgIoHeader {
 
 ioctl_read_bad!(ioctl_sg_io, SG_IO, SgIoHeader);
 
-pub fn run_sgio<Cmd: Command<CMD_LEN>, const CMD_LEN: usize>(
+pub fn run_sgio(
     fd: i32,
-    cmd: Cmd,
+    cdb: &mut [u8],
+    allocation_len: usize,
     dxfer_direction: DxferDirection,
-) -> Result<Vec<u8>, SCSIError> {
+) -> Result<Vec<u8>, ScsiError> {
     const SENSE_BUF_SIZE: u8 = 64;
 
     let mut sense = [0u8; SENSE_BUF_SIZE as usize];
 
-    let mut cdb = cmd.as_cdb();
-    let mut data = vec![0u8; cmd.allocation_len()];
+    let mut data = vec![0u8; allocation_len];
 
     let cdb_len = cdb.len();
     let Ok(cmd_len) = u8::try_from(cdb_len) else {
-        return Err(SCSIError::InvalidCDB(cdb_len));
+        return Err(ScsiError::InvalidCDB(cdb_len));
     };
 
-    let data_len = data.len();
-
-    let Ok(dxfer_len) = u32::try_from(data_len) else {
-        return Err(SCSIError::InvalidData(data_len));
+    let Ok(dxfer_len) = u32::try_from(allocation_len) else {
+        return Err(ScsiError::InvalidData(allocation_len));
     };
 
     let mut header = SgIoHeader {
@@ -153,7 +149,7 @@ pub fn run_sgio<Cmd: Command<CMD_LEN>, const CMD_LEN: usize>(
     }
 
     let Ok(status) = StatusCondition::try_from_primitive(header.masked_status) else {
-        return Err(SCSIError::UnknownStatus(header.masked_status));
+        return Err(ScsiError::UnknownStatus(header.masked_status));
     };
 
     // Note: If status == ConditionGood, then there *is* sense data available, but idk if I really
@@ -163,13 +159,13 @@ pub fn run_sgio<Cmd: Command<CMD_LEN>, const CMD_LEN: usize>(
         // overruns should never happen"
 
         if let Ok(residual) = usize::try_from(header.resid)
-            && data_len > residual
+            && allocation_len > residual
         {
-            data.truncate(data_len - residual);
+            data.truncate(allocation_len - residual);
             return Ok(data);
         };
 
-        return Err(SCSIError::InvalidResidual {
+        return Err(ScsiError::InvalidResidual {
             resid: header.resid,
             allocated: dxfer_len,
         });
@@ -182,7 +178,7 @@ pub fn run_sgio<Cmd: Command<CMD_LEN>, const CMD_LEN: usize>(
         let ascq = sense[13]; // Additional Sense Code Qualifier
 
         let Some(mmc_error) = MMCError::from_codes(sk, asc, ascq) else {
-            return Err(SCSIError::UnknownSenseData {
+            return Err(ScsiError::UnknownSenseData {
                 status,
                 sk,
                 asc,
@@ -190,8 +186,8 @@ pub fn run_sgio<Cmd: Command<CMD_LEN>, const CMD_LEN: usize>(
             });
         };
 
-        return Err(SCSIError::MMCError(mmc_error));
+        return Err(ScsiError::MMCError(mmc_error));
     }
 
-    Err(SCSIError::BadStatus(status))
+    Err(ScsiError::BadStatus(status))
 }

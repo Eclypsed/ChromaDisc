@@ -1,13 +1,13 @@
 use std::{cmp, fs::File, os::fd::AsRawFd};
 
 use bitflags::bitflags;
-use i24::{U24, u24};
+use i24::{u24, U24};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
 
 use crate::{
     core::addressing::{Address, Lba},
-    transport::sgio::{self, DxferDirection, run_sgio},
+    transport::sgio::{self, run_sgio, DxferDirection},
 };
 
 use super::{Command, Control};
@@ -175,7 +175,7 @@ impl<'a> SectorReader<'a> {
 }
 
 impl<'a> Iterator for SectorReader<'a> {
-    type Item = Result<(Vec<u8>, U24), sgio::SCSIError>;
+    type Item = Result<(Vec<u8>, U24), sgio::ScsiError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining == U24::ZERO {
@@ -195,7 +195,7 @@ impl<'a> Iterator for SectorReader<'a> {
     }
 }
 
-pub fn read_audio_range(file: &File, start: Lba, sectors: U24) -> Result<Vec<u8>, sgio::SCSIError> {
+pub fn read_audio_range(file: &File, start: Lba, sectors: U24) -> Result<Vec<u8>, sgio::ScsiError> {
     // 2352 * 27 = 63531 ~ 64 KBs common CD firmware limit
     const MAX_SECTORS_PER: U24 = u24!(27);
 
