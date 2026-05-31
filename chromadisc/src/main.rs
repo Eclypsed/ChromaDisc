@@ -1,12 +1,10 @@
-use chrono::Local;
-use std::os::fd::AsRawFd;
+use std::io;
 
+use rainbow_books::core::RawMsf;
 use scsi_lib::{
-    core::{
-        addressing::{Lba, Msf},
-        constants::{CHROMADISC_VERSION, FRAMES_PER_MINUTE, FRAMES_PER_SECOND},
-    },
-    // device::{get_devices, get_file_descriptor},
+    core::constants::CHROMADISC_VERSION,
+    device::{scan_sysfs, Drive},
+    scsi::mmc::commands::read_toc_pma_atip::{format::RawToc, ReadTocPmaAtip},
     // scsi::mmc::commands::{
     //     execute,
     //     get_configuration::{GetConfiguration, RTField},
@@ -50,13 +48,29 @@ mod cdio;
 //     }
 // }
 
-fn main() {
-    // let devices = get_devices();
-    // let fd = get_file_descriptor(devices[0].devnode.as_str()).unwrap();
-
+fn main() -> io::Result<()> {
     println!("ChromaDisc version {}", CHROMADISC_VERSION);
     println!();
-    //
+
+    let devices = scan_sysfs()?;
+
+    println!("Discovered Devices:");
+    for device in &devices {
+        println!("{device}")
+    }
+    println!();
+
+    let drive = Drive::new(devices[0].clone());
+
+    let cmd = ReadTocPmaAtip::<RawMsf, RawToc>::new(0, 4096, 0.into());
+
+    let result = drive.execute(cmd).unwrap();
+
+    println!("Raw TOC:");
+    println!("{result:#?}");
+
+    // let fd = get_file_descriptor(devices[0].devnode.as_str()).unwrap();
+
     // let timestamp = Local::now();
     // println!("ChromaDisc extraction logfile from {timestamp}");
     // println!();
@@ -66,4 +80,6 @@ fn main() {
     // let res = execute(config_cmd, fd.as_raw_fd()).unwrap();
     //
     // println!("{:#?}", res)
+
+    Ok(())
 }

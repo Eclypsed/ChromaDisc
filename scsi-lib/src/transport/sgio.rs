@@ -154,7 +154,7 @@ pub fn run_sgio(
 
     // Note: If status == ConditionGood, then there *is* sense data available, but idk if I really
     // care about that.
-    if status == StatusCondition::Good || status == StatusCondition::ConditionGood {
+    if matches!(status, StatusCondition::Good | StatusCondition::ConditionGood) {
         // From the SCSI HOWTO: "In practice it only reports underruns (i.e. positive number) as data
         // overruns should never happen"
 

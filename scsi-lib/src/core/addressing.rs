@@ -1,118 +1,25 @@
-use std::{
-    cmp::Ordering,
-    fmt::{self, Display},
-    ops::{Add, AddAssign, Sub, SubAssign},
-};
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 
-use derive_more::{Display, Into};
-use thiserror::Error;
-
-use crate::core::constants::PREGAP_OFFSET;
-
-mod sealed {
-    use std::fmt::Debug;
-
-    pub trait Sealed {
-        type Raw: Debug;
-    }
-}
-
-pub trait Address: sealed::Sealed + Copy + Display {
-    const ZERO: Self;
-    const MIN: Self;
-    const MAX: Self;
-}
-
-#[derive(Error, Debug)]
-pub enum AddressError<Addr: Address> {
-    #[error("Address input {0} out of range for: {min}..={max}", min = Addr::MIN, max = Addr::MAX)]
-    OutOfRange(Addr::Raw),
-}
-
-/// Newtype representing an unvalidated Logical Block Address (LBA) as read from a device
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Into)]
-pub struct RawLba(i32);
-
-impl RawLba {
-    pub(crate) fn new(value: i32) -> Self {
-        Self(value)
-    }
-}
+use derive_more::{Display, From, Into};
 
 /// Newtype representing a Logical Block Address (LBA)
 ///
 /// The LBA is the number that a Host uses to reference Logical Blocks on a block storage device.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Into)]
+#[derive(Clone, Copy, Debug, Display, PartialEq, Eq, PartialOrd, Ord, From, Into)]
 pub struct Lba(i32);
 
-/// Creates an LBA from a constant expression. Will result in a compile error if the expression is
-/// outside the valid range for LBAs.
-macro_rules! lba {
-    ($e:expr) => {
-        const {
-            match $crate::core::addressing::Lba::try_from_i32($e) {
-                Ok(v) => v,
-                Err(_) => panic!("LBA must be in range -451150..=404849"),
-            }
-        }
-    };
-}
-pub(crate) use lba;
-
-impl Lba {
-    const MAX_RAW: i32 = 404849;
-    const MIN_RAW: i32 = -451150;
-
-    const fn in_range(value: &i32) -> bool {
-        Self::MIN_RAW <= *value && *value <= Self::MAX_RAW
-    }
-
-    const fn new_unchecked(value: i32) -> Self {
-        assert!(
-            Self::in_range(&value),
-            "LBA must be in range -451150..=404849"
-        );
-
-        Self(value)
-    }
-
-    pub const fn try_from_i32(value: i32) -> Result<Self, AddressError<Self>> {
-        if Self::in_range(&value) {
-            return Ok(Self::new_unchecked(value));
-        }
-
-        Err(AddressError::OutOfRange(value))
-    }
-}
-
-impl sealed::Sealed for Lba {
-    type Raw = i32;
-}
-
-impl Address for Lba {
-    const ZERO: Self = lba!(0);
-    const MIN: Self = lba!(Self::MIN_RAW);
-    const MAX: Self = lba!(Self::MAX_RAW);
-}
-
-impl TryFrom<i32> for Lba {
-    type Error = AddressError<Lba>;
-
-    #[inline]
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        Self::try_from_i32(value)
-    }
-}
-
-impl TryFrom<RawLba> for Lba {
-    type Error = AddressError<Lba>;
-
-    fn try_from(value: RawLba) -> Result<Self, Self::Error> {
-        Lba::try_from_i32(value.0)
-    }
-}
+// macro_rules! lba {
+//     ($e:expr) => {
+//         const {
+//             match $crate::core::addressing::Lba::try_from_i32($e) {
+//                 Ok(v) => v,
+//                 Err(_) => panic!("LBA must be in range -451150..=404849"),
+//             }
+//         }
+//     };
+// }
+// pub(crate) use lba;
 
 // Why derive the LBA's Add/Sub traits for i32 instead of LBA?
 // Well, because conceptually, an LBA represents an ADDRESS not some sort of scalar value. It
@@ -126,7 +33,7 @@ impl Add<i32> for Lba {
 
     #[inline]
     fn add(self, rhs: i32) -> Self::Output {
-        Self::new_unchecked(self.0 + rhs)
+        Self(self.0 + rhs)
     }
 }
 
@@ -142,7 +49,7 @@ impl Sub<i32> for Lba {
 
     #[inline]
     fn sub(self, rhs: i32) -> Self::Output {
-        Self::new_unchecked(self.0 - rhs)
+        Self(self.0 - rhs)
     }
 }
 
@@ -153,136 +60,47 @@ impl SubAssign<i32> for Lba {
     }
 }
 
-impl From<Msf> for Lba {
-    /* The following comes strainght from the MMC-6 spec (Table 677) */
-    fn from(value: Msf) -> Self {
-        let offset_lba = (value.0 as i32 * 60 + value.1 as i32) * 75 + value.2 as i32;
+// impl From<Msf> for Lba {
+//     /* The following comes strainght from the MMC-6 spec (Table 677) */
+//     fn from(value: Msf) -> Self {
+//         let offset_lba =
+//             (value.minute() as i32 * 60 + value.second() as i32) * 75 + value.frame() as i32;
 
-        // Range from MMC-6: 00:00:00 <= MSF <= 89:59:74
-        if value <= Msf::new_unchecked(89, 59, 74) {
-            Self::new_unchecked(offset_lba - PREGAP_OFFSET as i32)
-        }
-        // Range from MMC-6: 90:00:00 <= MSF <= 99:59:74
-        else {
-            Self::new_unchecked(offset_lba - 450150)
-        }
-    }
-}
+//         // Range from MMC-6: 00:00:00 <= MSF <= 89:59:74
+//         if value <= Msf::new_unchecked(89, 59, 74) {
+//             Self(offset_lba - PREGAP_OFFSET as i32)
+//         }
+//         // Range from MMC-6: 90:00:00 <= MSF <= 99:59:74
+//         else {
+//             Self(offset_lba - 450150)
+//         }
+//     }
+// }
 
-fn parse_bcd(byte: u8) -> u8 {
-    ((byte >> 4) & 0xF) * 10 + (byte & 0x0F)
-}
+// ! THIS NEEDS TO BE MOVED
+// ! In short, this conversion is only technically defined for the WRITE command, and it not
+// ! technically, a top-level rule. This conversion should be moved to a module dedicated to
+// ! handling the WRITE command. Currently I'm going to proceed under the assumption that in the
+// ! typically LBAs and MSFs should not be converted to and from each other.
+// impl From<Lba> for Msf {
+//     /* The following comes strainght from the MMC-6 spec (Table 677) */
+//     fn from(value: Lba) -> Self {
+//         let raw_lba: i32 = value.into();
 
-pub struct RawMsf(u8, u8, u8);
+//         if (-150..=404849).contains(&raw_lba) {
+//             let m = (raw_lba + PREGAP_OFFSET as i32) / (60 * 75);
+//             let s = (raw_lba + PREGAP_OFFSET as i32 - m * 60 * 75) / 75;
+//             let f = raw_lba + PREGAP_OFFSET as i32 - m * 60 * 75 - s * 75;
 
-impl RawMsf {
-    pub(crate) fn new(min: u8, sec: u8, frame: u8) -> Self {
-        Self(parse_bcd(min), parse_bcd(sec), parse_bcd(frame))
-    }
-}
+//             // We should be mathmatecially garunteed safe truncation here
+//             Msf::new_unchecked(m as u8, s as u8, f as u8)
+//         } else {
+//             let m = (raw_lba + 450150) / (60 * 75);
+//             let s = (raw_lba + 450150 - m * 60 * 75) / 75;
+//             let f = raw_lba + 450150 - m * 60 * 75 - s * 75;
 
-/// Minute, Second, Frame format
-///
-/// A time based indexer represented as MM:SS:FF. Indexing is done using the 75 frames per second
-/// conversion from time to LBA.
-///
-/// NOTE: libcdio stores MSF values in BCD notation. To quote its own GNU manual documents,
-/// "Perhaps this is a libcdio design flaw. It was originally done I guess because it was
-/// convenient for VCDs." Currently, I see little reason to use BCD so we'll just use binary.
-#[derive(Clone, Copy, Debug)]
-pub struct Msf(u8, u8, u8);
-
-impl sealed::Sealed for Msf {
-    type Raw = (u8, u8, u8);
-}
-
-impl Address for Msf {
-    const ZERO: Self = Self::new_unchecked(0, 0, 0);
-    const MIN: Self = Self::new_unchecked(0, 0, 0);
-    const MAX: Self = Self::new_unchecked(Self::MAX_MIN, Self::MAX_SEC, Self::MAX_FRAME);
-}
-
-impl Msf {
-    const MAX_MIN: u8 = 99;
-    const MAX_SEC: u8 = 59;
-    const MAX_FRAME: u8 = 74;
-
-    pub fn new(min: u8, sec: u8, frame: u8) -> Result<Self, AddressError<Msf>> {
-        if min > Self::MAX_MIN || sec > Self::MAX_SEC || frame > Self::MAX_FRAME {
-            return Err(AddressError::OutOfRange((min, sec, frame)));
-        }
-
-        Ok(Self::new_unchecked(min, sec, frame))
-    }
-
-    pub const fn new_unchecked(min: u8, sec: u8, frame: u8) -> Self {
-        debug_assert!(min <= Self::MAX_MIN, "minutes out of range");
-        debug_assert!(sec <= Self::MAX_SEC, "seconds out of range");
-        debug_assert!(frame <= Self::MAX_FRAME, "frames out of range");
-
-        Self(min, sec, frame)
-    }
-
-    pub fn from_bcd_bytes(min: u8, sec: u8, frame: u8) -> Self {
-        Self(parse_bcd(min), parse_bcd(sec), parse_bcd(frame))
-    }
-}
-
-impl From<Lba> for Msf {
-    /* The following comes strainght from the MMC-6 spec (Table 677) */
-    fn from(value: Lba) -> Self {
-        let raw_lba: i32 = value.into();
-
-        if (-150..=404849).contains(&raw_lba) {
-            let m = (raw_lba + PREGAP_OFFSET as i32) / (60 * 75);
-            let s = (raw_lba + PREGAP_OFFSET as i32 - m * 60 * 75) / 75;
-            let f = raw_lba + PREGAP_OFFSET as i32 - m * 60 * 75 - s * 75;
-
-            // We should be mathmatecially garunteed safe truncation here
-            Msf::new_unchecked(m as u8, s as u8, f as u8)
-        } else {
-            let m = (raw_lba + 450150) / (60 * 75);
-            let s = (raw_lba + 450150 - m * 60 * 75) / 75;
-            let f = raw_lba + 450150 - m * 60 * 75 - s * 75;
-
-            // We should be mathmatecially garunteed safe truncation here
-            Msf::new_unchecked(m as u8, s as u8, f as u8)
-        }
-    }
-}
-
-impl fmt::Display for Msf {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:02}:{:02}:{:02}", self.0, self.1, self.2)
-    }
-}
-
-impl PartialEq for Msf {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0 && self.1 == other.1 && self.2 == other.2
-    }
-}
-
-impl Eq for Msf {}
-
-impl PartialOrd for Msf {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Msf {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let m = self.0.cmp(&other.0);
-        match m {
-            Ordering::Equal => {
-                let s = self.1.cmp(&other.1);
-                match s {
-                    Ordering::Equal => self.2.cmp(&other.2),
-                    _ => s,
-                }
-            }
-            _ => m,
-        }
-    }
-}
+//             // We should be mathmatecially garunteed safe truncation here
+//             Msf::new_unchecked(m as u8, s as u8, f as u8)
+//         }
+//     }
+// }

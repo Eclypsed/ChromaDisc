@@ -1,15 +1,18 @@
 use nix::sys::stat::Mode;
+use std::error::Error;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::path::Path;
 use std::{fs, io};
 
 use array_concat::*;
 use const_format::concatcp;
-use nix::fcntl::{OFlag, open};
+use nix::fcntl::{open, OFlag};
 use seq_macro::seq;
 
+use crate::scsi::mmc::commands::{Command, OpCode, OpCodeDef, Response};
 // use crate::scsi::mmc::commands::{execute, inquiry::Inquiry};
 use crate::scsi::mmc::types::spc;
+use crate::transport::sgio::{run_sgio, DxferDirection};
 
 macro_rules! device_files {
     ($prefix:expr, $($range:tt)+) => {{
@@ -30,35 +33,53 @@ const SR_DEVICES: [&str; 28] = device_files!("/dev/sr", 0u8..=27u8);
 pub const DEVICES: [&str; concat_arrays_size!(NAMED_DEVICES, HD_DEVICES, SCD_DEVICES, SR_DEVICES)] =
     concat_arrays!(NAMED_DEVICES, HD_DEVICES, SCD_DEVICES, SR_DEVICES);
 
-pub fn get_file_descriptor(device: &str) -> io::Result<OwnedFd> {
-    Ok(open(
-        device,
-        OFlag::O_RDONLY | OFlag::O_NONBLOCK,
-        Mode::empty(),
-    )?)
-}
-
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct Drive {
     pub devnode: String,
-    pub removeable_medium: bool,
-    pub spc_version: spc::Version,
-    pub vendor: String,
-    pub product_id: String,
-    pub revision: String,
+    // pub removeable_medium: bool,
+    // pub spc_version: spc::Version,
+    // pub vendor: String,
+    // pub product_id: String,
+    // pub revision: String,
 }
 
-fn scan_sysfs() -> io::Result<Vec<String>> {
+impl Drive {
+    pub fn new(devnode: String) -> Self {
+        Self { devnode }
+    }
+
+    fn get_fd(&self) -> io::Result<OwnedFd> {
+        Ok(open(
+            self.devnode.as_str(),
+            OFlag::O_RDONLY | OFlag::O_NONBLOCK,
+            Mode::empty(),
+        )?)
+    }
+
+    pub fn execute<O: OpCodeDef, C: Command<O>>(
+        &self,
+        command: C,
+    ) -> Result<C::Response, Box<dyn Error>> {
+        let bytes = run_sgio(
+            self.get_fd()?.as_raw_fd(),
+            command.as_cdb().as_mut(),
+            4096,
+            DxferDirection::FromDev,
+        )?;
+        Ok(C::Response::from_bytes(&bytes)?)
+    }
+}
+
+pub fn scan_sysfs() -> io::Result<Vec<String>> {
     const OPTICAL_DEVICE_TYPE: &str = "5";
 
     let mut devnodes = Vec::new();
     let base = Path::new("/sys/class/block");
 
     for entry in fs::read_dir(base)? {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
+        let Ok(entry) = entry else {
+            continue;
         };
 
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -67,9 +88,8 @@ fn scan_sysfs() -> io::Result<Vec<String>> {
 
         let type_path = device_path.join("type");
 
-        let dev_type = match fs::read_to_string(&type_path) {
-            Ok(t) => t.trim().to_string(),
-            Err(_) => continue,
+        let Ok(dev_type) = fs::read_to_string(&type_path).map(|t| t.trim().to_string()) else {
+            continue;
         };
 
         if dev_type == OPTICAL_DEVICE_TYPE {
@@ -82,12 +102,12 @@ fn scan_sysfs() -> io::Result<Vec<String>> {
 
 // pub fn get_devices() -> Vec<Drive> {
 //     let mut devices = Vec::new();
-//
+
 //     for devnode in scan_sysfs().unwrap() {
 //         let fd = get_file_descriptor(&devnode).unwrap();
 //         let inquiry = Inquiry::new(false, 0, 0.into());
 //         let res = execute(inquiry, fd.as_raw_fd()).unwrap();
-//
+
 //         devices.push(Drive {
 //             devnode,
 //             removeable_medium: res.removable_media,
@@ -97,6 +117,6 @@ fn scan_sysfs() -> io::Result<Vec<String>> {
 //             revision: res.product_revision_level,
 //         });
 //     }
-//
+
 //     devices
 // }

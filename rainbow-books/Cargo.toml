@@ -5,4 +5,9 @@ authors.workspace = true
 edition.workspace = true
 
 [dependencies]
+arbitrary-int = "2.1.1"
+bitflags = "2.11.1"
 deku = { version = "0.20.3", features = ["bits"] }
+derive_more = "2.1.1"
+num-traits = "0.2.19"
+thiserror = "2.0.18"

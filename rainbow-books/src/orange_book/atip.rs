@@ -1,6 +1,13 @@
-use crate::core::Msf;
+use std::io::{Seek, SeekFrom};
 
-use deku::{ctx::BitSize, prelude::*};
+use deku::{
+    ctx::{BitSize, Order},
+    deku_derive,
+    reader::Reader,
+    DekuError, DekuRead, DekuReader,
+};
+
+use crate::core::RawMsf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiscType {
@@ -17,10 +24,11 @@ impl<'a> DekuReader<'a> for DiscType {
         Self: Sized,
     {
         let id = u8::from_reader_with_ctx(reader, BitSize(1))?;
-        let subtype = CdrwSubtype::from_reader_with_ctx(reader, ())?;
         if id == 0 {
+            reader.skip_bits(3, Order::Msb0)?;
             Ok(Self::Cdr)
         } else {
+            let subtype = CdrwSubtype::from_reader_with_ctx(reader, ())?;
             Ok(Self::Cdrw(subtype))
         }
     }
@@ -41,6 +49,9 @@ pub enum CdrwSubtype {
     Reserved(u8),
 }
 
+/// A 7-bit value distiguishing between discs used for different applications
+///
+/// See CD-R System Description (Orange Book Part II Volume 2) §4.4.1.3
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
 #[deku(id_type = "u8", bits = 7)]
 #[repr(u8)]
@@ -51,20 +62,6 @@ pub enum DiscApplicationCode {
     UnrestrictedUse = 0b1000000,
     #[deku(id_pat = "_")]
     Reserved(u8),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id_type = "u8", bits = 3)]
-#[repr(u8)]
-pub enum IndicativeTargetWritingPower {
-    W000 = 0b000,
-    W001 = 0b001,
-    W010 = 0b010,
-    W011 = 0b011,
-    W100 = 0b100,
-    W101 = 0b101,
-    W110 = 0b110,
-    W111 = 0b111,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
@@ -88,37 +85,55 @@ pub enum DiscSpeed {
     Reserved(u8),
 }
 
+/// A 16-bit value that contains a unique identifying code for the Disc Manufacturer and the type
+/// of disc.
+///
+/// See CD-R System Description (Orange Book Part II Volume 2) §4.4.6.2
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
-pub struct MediaIdentificationCode(#[deku(endian = "big")] u16);
+pub struct MediaIdentificationCode(#[deku(endian = "big")] pub u16);
 
-#[deku_derive(DekuRead)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct SpecialInformation1 {
-    #[deku(bits = 1, temp, assert_eq = "1")]
-    _m1: u8,
-    #[deku(pad_bits_after = "1")]
-    pub target_writing_power: IndicativeTargetWritingPower,
-    #[deku(ctx = "3")]
-    pub reference_speed: DiscSpeed,
+pub enum SpecialInformation1 {
+    Cdr(cdr::SpecialInformation1),
+    CdrwStandard(cdrw::standard::SpecialInformation1),
+    CdrwHighSpeed(cdrw::high_speed::SpecialInformation1),
+    CdrwUltraSpeed(cdrw::ultra_speed::SpecialInformation1),
+    CdrwUltraSpeedPlus(cdrw::ultra_speed_plus::SpecialInformation1),
+}
 
-    #[deku(bits = 1, temp, assert_eq = "0")]
-    _s1: u8,
-    pub disc_application_code: DiscApplicationCode,
+impl<'a> DekuReader<'a> for SpecialInformation1 {
+    fn from_reader_with_ctx<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
+        reader: &mut Reader<R>,
+        _: (),
+    ) -> Result<Self, DekuError> {
+        reader.seek(SeekFrom::Current(2))?;
+        reader.skip_bits(1, Order::Msb0)?;
+        let disc_type = DiscType::from_reader_with_ctx(reader, ())?;
+        reader.skip_bits(3, Order::Msb0)?;
+        reader.seek(SeekFrom::Current(-3))?;
 
-    #[deku(bits = 1, temp, assert_eq = "1")]
-    _f1: u8,
-    pub disc_type: DiscType,
-    #[deku(bits = 1)]
-    pub a1_valid: bool,
-    #[deku(bits = 1)]
-    pub a2_valid: bool,
-    #[deku(bits = 1)]
-    pub a3_valid: bool,
+        Ok(match disc_type {
+            DiscType::Cdr => Self::Cdr(cdr::SpecialInformation1::from_reader_with_ctx(reader, ())?),
+            DiscType::Cdrw(CdrwSubtype::Standard) => Self::CdrwStandard(
+                cdrw::standard::SpecialInformation1::from_reader_with_ctx(reader, ())?,
+            ),
+            DiscType::Cdrw(CdrwSubtype::HighSpeed) => Self::CdrwHighSpeed(
+                cdrw::high_speed::SpecialInformation1::from_reader_with_ctx(reader, ())?,
+            ),
+            DiscType::Cdrw(CdrwSubtype::UltraSpeed) => Self::CdrwUltraSpeed(
+                cdrw::ultra_speed::SpecialInformation1::from_reader_with_ctx(reader, ())?,
+            ),
+            DiscType::Cdrw(CdrwSubtype::UltraSpeedPlus) => Self::CdrwUltraSpeedPlus(
+                cdrw::ultra_speed_plus::SpecialInformation1::from_reader_with_ctx(reader, ())?,
+            ),
+            _ => return Err(DekuError::IdVariantNotFound),
+        })
+    }
 }
 
 #[deku_derive(DekuRead)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct SpecialInformation2 {
+pub struct SpecialInformation2 {
     #[deku(bits = 1, temp, assert_eq = "1")]
     _m1: u8,
     #[deku(bits = 7, temp)]
@@ -136,14 +151,14 @@ struct SpecialInformation2 {
 
     #[deku(
         skip,
-        default = "Msf::from_bcd(*_m2m8 | 0x80, *_s2s8 & 0x7F, *_f2f8 & 0x7F)"
+        default = "RawMsf::from_bcd(*_m2m8 | 0x80, *_s2s8 & 0x7F, *_f2f8 & 0x7F)"
     )]
-    lead_in_start_time: Msf,
+    pub lead_in_start_time: RawMsf,
 }
 
 #[deku_derive(DekuRead)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct SpecialInformation3 {
+pub struct SpecialInformation3 {
     #[deku(bits = 1, temp, assert_eq = "1")]
     _m1: u8,
     #[deku(bits = 7, temp)]
@@ -161,234 +176,23 @@ struct SpecialInformation3 {
 
     #[deku(
         skip,
-        default = "Msf::from_bcd(*_m2m8 & 0x7F, *_s2s8 & 0x7F, *_f2f8 & 0x7F)"
+        default = "RawMsf::from_bcd(*_m2m8 & 0x7F, *_s2s8 & 0x7F, *_f2f8 & 0x7F)"
     )]
-    lead_out_start_time: Msf,
-}
-
-#[deku_derive(DekuRead)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Atip {
-    #[deku(temp, pad_bytes_after = "1")]
-    _s1: SpecialInformation1,
-    #[deku(temp, pad_bytes_after = "1")]
-    _s2: SpecialInformation2,
-    #[deku(temp, pad_bytes_after = "1")]
-    _s3: SpecialInformation3,
-
-    #[deku(ctx = "*_s1, *_s2, *_s3")]
-    descriptor: AtipVariant,
-}
-
-#[deku_derive(DekuRead)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[deku(
-    id = "s1.disc_type",
-    ctx = "s1: SpecialInformation1, s2: SpecialInformation2, s3: SpecialInformation3"
-)]
-pub enum AtipVariant {
-    #[deku(id = "DiscType::Cdr")]
-    Cdr {
-        #[deku(
-            skip,
-            default = "cdr::WritePowerRefSpeed::from(s1.target_writing_power)"
-        )]
-        write_power_ref_speed: cdr::WritePowerRefSpeed,
-        #[deku(skip, default = "s1.reference_speed")]
-        reference_speed: DiscSpeed,
-        #[deku(skip, default = "s1.disc_application_code")]
-        disc_application_code: DiscApplicationCode,
-        #[deku(skip, default = "s2.lead_in_start_time")]
-        lead_in_start_time: Msf,
-        #[deku(skip, default = "s3.lead_out_start_time")]
-        lead_out_start_time: Msf,
-
-        #[deku(
-            cond = "s1.a1_valid",
-            pad_bytes_after = "if s1.a1_valid { 1 } else { 4 }"
-        )]
-        additional_information_1: Option<cdr::AdditionalInformation1>,
-
-        #[deku(
-            cond = "s1.a2_valid",
-            pad_bytes_after = "if s1.a2_valid { 1 } else { 4 }"
-        )]
-        additional_information_2: Option<cdr::AdditionalInformation2>,
-
-        #[deku(
-            cond = "s1.a3_valid",
-            pad_bytes_after = "if s1.a3_valid { 1 } else { 4 }"
-        )]
-        additional_information_3: Option<cdr::AdditionalInformation3>,
-    },
-    #[deku(id = "DiscType::Cdrw(CdrwSubtype::Standard)")]
-    Cdrw {
-        #[deku(
-            skip,
-            default = "cdrw::standard::WritePower::from(s1.target_writing_power)"
-        )]
-        write_power_ref_speed: cdrw::standard::WritePower,
-        #[deku(skip, default = "s1.reference_speed")]
-        reference_speed: DiscSpeed,
-        #[deku(skip, default = "s1.disc_application_code")]
-        disc_application_code: DiscApplicationCode,
-        #[deku(skip, default = "s2.lead_in_start_time")]
-        lead_in_start_time: Msf,
-        #[deku(skip, default = "s3.lead_out_start_time")]
-        lead_out_start_time: Msf,
-
-        #[deku(
-            cond = "s1.a1_valid",
-            pad_bytes_after = "if s1.a1_valid { 1 } else { 4 }"
-        )]
-        additional_information_1: Option<cdrw::standard::AdditionalInformation1>,
-
-        #[deku(
-            cond = "s1.a2_valid",
-            pad_bytes_after = "if s1.a2_valid { 1 } else { 4 }"
-        )]
-        additional_information_2: Option<cdrw::standard::AdditionalInformation2>,
-
-        #[deku(
-            cond = "s1.a3_valid",
-            pad_bytes_after = "if s1.a3_valid { 1 } else { 4 }"
-        )]
-        additional_information_3: Option<cdrw::AdditionalInformation3>,
-    },
-    #[deku(id = "DiscType::Cdrw(CdrwSubtype::HighSpeed)")]
-    CdrwHighSpeed {
-        #[deku(
-            skip,
-            default = "cdrw::high_speed::WritePower::from(s1.target_writing_power)"
-        )]
-        write_power_ref_speed: cdrw::high_speed::WritePower,
-        #[deku(skip, default = "s1.reference_speed")]
-        reference_speed: DiscSpeed,
-        #[deku(skip, default = "s1.disc_application_code")]
-        disc_application_code: DiscApplicationCode,
-        #[deku(skip, default = "s2.lead_in_start_time")]
-        lead_in_start_time: Msf,
-        #[deku(skip, default = "s3.lead_out_start_time")]
-        lead_out_start_time: Msf,
-
-        #[deku(
-            cond = "s1.a1_valid",
-            pad_bytes_after = "if s1.a1_valid { 1 } else { 4 }"
-        )]
-        additional_information_1: Option<cdrw::high_speed::AdditionalInformation1>,
-
-        #[deku(
-            cond = "s1.a2_valid",
-            pad_bytes_after = "if s1.a2_valid { 1 } else { 4 }"
-        )]
-        additional_information_2: Option<cdrw::high_speed::AdditionalInformation2>,
-
-        #[deku(
-            cond = "s1.a3_valid",
-            pad_bytes_after = "if s1.a3_valid { 1 } else { 4 }"
-        )]
-        additional_information_3: Option<cdrw::AdditionalInformation3>,
-    },
-    #[deku(id = "DiscType::Cdrw(CdrwSubtype::UltraSpeed)")]
-    CdrwUltraSpeed {
-        #[deku(
-            skip,
-            default = "cdrw::ultra_speed::WritePower::from(s1.target_writing_power)"
-        )]
-        write_power_ref_speed: cdrw::ultra_speed::WritePower,
-        #[deku(skip, default = "s1.reference_speed")]
-        reference_speed: DiscSpeed,
-        #[deku(skip, default = "s1.disc_application_code")]
-        disc_application_code: DiscApplicationCode,
-        #[deku(skip, default = "s2.lead_in_start_time")]
-        lead_in_start_time: Msf,
-        #[deku(skip, default = "s3.lead_out_start_time")]
-        lead_out_start_time: Msf,
-
-        #[deku(
-            cond = "s1.a1_valid",
-            pad_bytes_after = "if s1.a1_valid { 1 } else { 4 }"
-        )]
-        additional_information_1: Option<cdrw::ultra_speed::AdditionalInformation1>,
-
-        #[deku(
-            cond = "s1.a2_valid",
-            pad_bytes_after = "if s1.a2_valid { 1 } else { 4 }"
-        )]
-        additional_information_2: Option<cdrw::ultra_speed::AdditionalInformation2>,
-
-        #[deku(
-            cond = "s1.a3_valid",
-            pad_bytes_after = "if s1.a3_valid { 1 } else { 4 }"
-        )]
-        additional_information_3: Option<cdrw::AdditionalInformation3>,
-    },
-    #[deku(id = "DiscType::Cdrw(CdrwSubtype::UltraSpeedPlus)")]
-    CdrwUltraSpeedPlus {
-        #[deku(skip, default = "s1.disc_application_code")]
-        disc_application_code: DiscApplicationCode,
-        #[deku(skip, default = "s2.lead_in_start_time")]
-        lead_in_start_time: Msf,
-        #[deku(skip, default = "s3.lead_out_start_time")]
-        lead_out_start_time: Msf,
-
-        // Ultra speed plus doesn't store any non-zero values
-        // for Additional Information 1
-        #[deku(
-            pad_bytes_before = "4",
-            cond = "s1.a2_valid",
-            pad_bytes_after = "if s1.a2_valid { 1 } else { 4 }"
-        )]
-        additional_information_2: Option<cdrw::ultra_speed_plus::AdditionalInformation2>,
-
-        #[deku(
-            cond = "s1.a3_valid",
-            pad_bytes_after = "if s1.a3_valid { 1 } else { 4 }"
-        )]
-        additional_information_3: Option<cdrw::AdditionalInformation3>,
-    },
-}
-
-#[cfg(test)]
-mod deku_test {
-    use std::io::Cursor;
-
-    use deku::{deku_derive, reader::Reader, DekuContainerWrite, DekuReader};
-
-    #[deku_derive(DekuRead, DekuWrite)]
-    #[derive(Debug, PartialEq, Eq)]
-    struct Data {
-        flag: u8,
-
-        #[deku(
-            cond = "*flag == 0x01",
-            pad_bytes_after = "if *flag == 0x1 { 1 } else { 4 }"
-        )]
-        conditional_info: Option<[u8; 3]>,
-
-        last_value: u8,
-    }
-
-    #[test]
-    fn conditional_skipping() {
-        let data: &[u8] = &[0x00, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-        let mut reader = Reader::new(Cursor::new(data));
-
-        let value = Data::from_reader_with_ctx(&mut reader, ()).unwrap();
-
-        println!("{value:#?}");
-
-        let data_out = value.to_bytes().unwrap();
-
-        println!("{data_out:#?}");
-    }
+    pub lead_out_start_time: RawMsf,
 }
 
 pub mod cdr {
     use std::ops::Range;
 
-    use super::*;
+    use deku::{deku_derive, DekuRead};
 
+    use crate::orange_book::atip::{
+        DiscApplicationCode, DiscSpeed, DiscType, MediaIdentificationCode,
+    };
+
+    /// A 3-bit value representing the optimum recording power in mW for CD-R and CD-RW discs.
+    ///
+    /// See CD-R/WO System Description (Orange Book Part II Volume 1) §4.4
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
     #[deku(id_type = "u8", bits = 3)]
     #[repr(u8)]
@@ -418,21 +222,9 @@ pub mod cdr {
         }
     }
 
-    impl From<IndicativeTargetWritingPower> for WritePowerRefSpeed {
-        fn from(value: IndicativeTargetWritingPower) -> Self {
-            match value {
-                IndicativeTargetWritingPower::W000 => WritePowerRefSpeed::W4_0,
-                IndicativeTargetWritingPower::W001 => WritePowerRefSpeed::W4_4,
-                IndicativeTargetWritingPower::W010 => WritePowerRefSpeed::W4_9,
-                IndicativeTargetWritingPower::W011 => WritePowerRefSpeed::W5_4,
-                IndicativeTargetWritingPower::W100 => WritePowerRefSpeed::W5_9,
-                IndicativeTargetWritingPower::W101 => WritePowerRefSpeed::W6_6,
-                IndicativeTargetWritingPower::W110 => WritePowerRefSpeed::W7_2,
-                IndicativeTargetWritingPower::W111 => WritePowerRefSpeed::W8_0,
-            }
-        }
-    }
-
+    /// A 3-bit value representing a sub-class withing the Multi-Speed Recordable disc types
+    ///
+    /// See CD-R System Description (Orange Book Part II Volume 2) §4.4.4.3
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
     #[deku(id_type = "u8", bits = 3)]
     #[repr(u8)]
@@ -442,6 +234,9 @@ pub mod cdr {
         Reserved(u8),
     }
 
+    /// A 2-bit value representing a sub-class withing the Multi-Speed Recordable disc types
+    ///
+    /// See CD-R System Description (Orange Book Part II Volume 2) §4.4.4.4
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
     #[deku(id_type = "u8", bits = 2)]
     #[repr(u8)]
@@ -472,6 +267,10 @@ pub mod cdr {
         }
     }
 
+    /// A 3-bit value representing the optimum Write Pulse length for the medium for recording at the
+    /// High Test Speed
+    ///
+    /// See CD-R System Description (Orange Book Part II Volume 2) §4.4.4.5
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
     #[deku(id_type = "u8", bits = 3)]
     #[repr(u8)]
@@ -501,6 +300,11 @@ pub mod cdr {
         }
     }
 
+    /// A 4-bit value specifying the Additional Capacity & Lead-out area length and the location of
+    /// PCA2 by means of an offset relative to the Start Time of the Additional Capacity & Lead-out
+    /// Area.
+    ///
+    /// See CD-R System Description (Orange Book Part II Volume 2) §4.4.4.6
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
     #[deku(id_type = "u8", bits = 4)]
     #[repr(u8)]
@@ -584,6 +388,10 @@ pub mod cdr {
         }
     }
 
+    /// A 3-bit value that specifies the optimum Delta-P for the I3 Write Pulse for recording at the
+    /// Highest Test Speed.
+    ///
+    /// See CD-R System Description (Orange Book Part II Volume 2) §4.4.5.3
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
     #[deku(id_type = "u8", bits = 3)]
     #[repr(u8)]
@@ -613,6 +421,10 @@ pub mod cdr {
         }
     }
 
+    /// A 2-bit value that specifies the optimum Delta-T for each Write Pulse after an I3 Land for
+    ///  recording at the Highest Test Speed.
+    ///
+    /// See CD-R System Description (Orange Book Part II Volume 2) §4.4.5.4
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
     #[deku(id_type = "u8", bits = 2)]
     #[repr(u8)]
@@ -634,6 +446,9 @@ pub mod cdr {
         }
     }
 
+    /// A 2-bit value specifying the type of technology of the recordable layer on the disc.
+    ///
+    /// See CD-R System Description (Orange Book Part II Volume 2) §4.4.6.1
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
     #[deku(id_type = "u8", bits = 2)]
     #[repr(u8)]
@@ -642,6 +457,32 @@ pub mod cdr {
         PhtaloCyanine = 0b01,
         Reserved = 0b10,
         Other = 0b11,
+    }
+
+    #[deku_derive(DekuRead)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct SpecialInformation1 {
+        #[deku(bits = 1, temp, assert_eq = "1")]
+        _m1: u8,
+        #[deku(pad_bits_after = "1")]
+        pub target_writing_power: WritePowerRefSpeed,
+        #[deku(ctx = "3")]
+        pub reference_speed: DiscSpeed,
+
+        #[deku(bits = 1, temp, assert_eq = "0")]
+        _s1: u8,
+        pub disc_application_code: DiscApplicationCode,
+
+        #[deku(bits = 1, temp, assert_eq = "1")]
+        _f1: u8,
+        #[deku(temp, assert_eq = "DiscType::Cdr")]
+        _disc_type: DiscType,
+        #[deku(bits = 1)]
+        pub a1_valid: bool,
+        #[deku(bits = 1)]
+        pub a2_valid: bool,
+        #[deku(bits = 1)]
+        pub a3_valid: bool,
     }
 
     #[deku_derive(DekuRead)]
@@ -680,7 +521,7 @@ pub mod cdr {
         #[deku(pad_bits_after = "2")]
         pub pulse_length_correction_i3_lands: PulseLengthCorrectionI3,
 
-        #[deku(bits = 0, temp, assert_eq = "1", pad_bits_after = "7")]
+        #[deku(bits = 1, temp, assert_eq = "0", pad_bits_after = "7")]
         _f1: u8,
     }
 
@@ -711,12 +552,74 @@ pub mod cdr {
         #[deku(bits = 3)]
         pub product_revision_number: u8,
     }
+
+    #[cfg(test)]
+    mod tests {
+        use std::io::Cursor;
+
+        use deku::{reader::Reader, DekuReader};
+
+        use super::*;
+
+        #[test]
+        fn parse_additional_information_1() {
+            let data: &[u8] = &[0b0010_1000, 0b0000_0001, 0b1010_0000];
+            let mut reader = Reader::new(Cursor::new(data));
+
+            let val = AdditionalInformation1::from_reader_with_ctx(&mut reader, ()).unwrap();
+
+            assert_eq!(
+                AdditionalInformation1 {
+                    lowest_test_speed: DiscSpeed::X4,
+                    highest_test_speed: DiscSpeed::X24,
+                    high_speed_subtype: HighSpeedSubtype::CdrMultiSpeed,
+                    optimum_beta_range: OptimumBetaRange::Target0,
+                    optimum_pulse_length: OptimumPulseLength::ThetaP0_50,
+                    additional_capacity_len: AdditionalCapacityLength::Minutes2,
+                },
+                val
+            );
+        }
+
+        #[test]
+        fn parse_additional_information_2() {
+            let data: &[u8] = &[0b0001_1010, 0b1100_0101, 0b0010_0000];
+            let mut reader = Reader::new(Cursor::new(data));
+
+            let val = AdditionalInformation2::from_reader_with_ctx(&mut reader, ()).unwrap();
+
+            assert_eq!(
+                AdditionalInformation2 {
+                    writing_power_lowest_speed: WritePowerMinSpeed::W8_0,
+                    writing_power_highest_speed: WritePowerMaxSpeed::W36_0,
+                    power_boost_i3_pits: PowerBoostI3::Percent8,
+                    pulse_length_correction_i3_lands: PulseLengthCorrectionI3::T1_16,
+                },
+                val
+            );
+        }
+
+        #[test]
+        fn parse_additional_information_3() {
+            let data: &[u8] = &[0b0010_1110, 0b1101_0101, 0b1000_0010];
+            let mut reader = Reader::new(Cursor::new(data));
+
+            let val = AdditionalInformation3::from_reader_with_ctx(&mut reader, ()).unwrap();
+
+            assert_eq!(
+                AdditionalInformation3 {
+                    media_technology_type: MediaTechnologyType::PhtaloCyanine,
+                    media_identification_code: MediaIdentificationCode(0b0111010101010000),
+                    product_revision_number: 2,
+                },
+                val
+            );
+        }
+    }
 }
 
 pub mod cdrw {
-    use deku::{deku_derive, DekuRead};
-
-    use super::MediaIdentificationCode;
+    use deku::DekuRead;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
     #[deku(id_type = "u8", bits = 2)]
@@ -728,38 +631,10 @@ pub mod cdrw {
         Reserved(u8),
     }
 
-    #[deku_derive(DekuRead)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct AdditionalInformation3 {
-        #[deku(bits = 1, temp, assert_eq = "0")]
-        _m1: u8,
-        pub media_technology_type: MediaTechnologyType,
-        #[deku(bits = 5, temp)]
-        _q1q5: u16,
-
-        #[deku(bits = 1, temp, assert_eq = "1")]
-        _s1: u8,
-        #[deku(bits = 7, temp)]
-        _q6q12: u16,
-
-        #[deku(bits = 1, temp, assert_eq = "1")]
-        _f1: u8,
-        #[deku(bits = 4, temp)]
-        _q13q16: u16,
-
-        #[deku(
-            skip,
-            default = "MediaIdentificationCode(*_q1q5 << 11 | *_q6q12 << 4 | *_q13q16)"
-        )]
-        pub media_identification_code: MediaIdentificationCode,
-        #[deku(bits = 3)]
-        pub product_revision_number: u8,
-    }
-
     pub mod standard {
         use deku::{deku_derive, DekuRead};
 
-        use crate::orange_book::atip::{DiscSpeed, IndicativeTargetWritingPower};
+        use crate::orange_book::atip::{CdrwSubtype, DiscApplicationCode, DiscSpeed, DiscType};
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
         #[deku(id_type = "u8", bits = 3)]
@@ -786,21 +661,6 @@ pub mod cdrw {
                     Self::W10_0 => 10.0,
                     Self::W11_0 => 11.0,
                     Self::W12_0 => 12.0,
-                }
-            }
-        }
-
-        impl From<IndicativeTargetWritingPower> for WritePower {
-            fn from(value: IndicativeTargetWritingPower) -> Self {
-                match value {
-                    IndicativeTargetWritingPower::W000 => WritePower::W5_0,
-                    IndicativeTargetWritingPower::W001 => WritePower::W6_0,
-                    IndicativeTargetWritingPower::W010 => WritePower::W7_0,
-                    IndicativeTargetWritingPower::W011 => WritePower::W12_0,
-                    IndicativeTargetWritingPower::W100 => WritePower::W9_0,
-                    IndicativeTargetWritingPower::W101 => WritePower::W10_0,
-                    IndicativeTargetWritingPower::W110 => WritePower::W11_0,
-                    IndicativeTargetWritingPower::W111 => WritePower::W12_0,
                 }
             }
         }
@@ -894,6 +754,32 @@ pub mod cdrw {
 
         #[deku_derive(DekuRead)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct SpecialInformation1 {
+            #[deku(bits = 1, temp, assert_eq = "1")]
+            _m1: u8,
+            #[deku(pad_bits_after = "1")]
+            pub target_writing_power: WritePower,
+            #[deku(ctx = "3")]
+            pub reference_speed: DiscSpeed,
+
+            #[deku(bits = 1, temp, assert_eq = "0")]
+            _s1: u8,
+            pub disc_application_code: DiscApplicationCode,
+
+            #[deku(bits = 1, temp, assert_eq = "1")]
+            _f1: u8,
+            #[deku(assert_eq = "DiscType::Cdrw(CdrwSubtype::Standard)")]
+            pub disc_type: DiscType,
+            #[deku(bits = 1)]
+            pub a1_valid: bool,
+            #[deku(bits = 1)]
+            pub a2_valid: bool,
+            #[deku(bits = 1)]
+            pub a3_valid: bool,
+        }
+
+        #[deku_derive(DekuRead)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct AdditionalInformation1 {
             #[deku(bits = 1, temp, assert_eq = "0")]
             _m1: u8,
@@ -935,13 +821,47 @@ pub mod cdrw {
             #[deku(pad_bits_after = "1")]
             pub erase_write_ratio_max_speed: EraseWriteRatio,
         }
+
+        #[cfg(test)]
+        mod tests {
+            use std::io::Cursor;
+
+            use deku::{reader::Reader, DekuReader};
+
+            use crate::orange_book::atip::{
+                cdrw::standard::{
+                    AdditionalInformation1, EraseWriteRatio, PowerMultFactor, TargetModulationValue,
+                },
+                DiscSpeed,
+            };
+
+            #[test]
+            fn parse_additional_information_1() {
+                let data: &[u8] = &[0b0000_0010, 0b0100_1100, 0b1001_0000];
+                let mut reader = Reader::new(Cursor::new(data));
+
+                let val = AdditionalInformation1::from_reader_with_ctx(&mut reader, ()).unwrap();
+
+                assert_eq!(
+                    AdditionalInformation1 {
+                        lowest_clv_speed: DiscSpeed::X1,
+                        highest_clv_speed: DiscSpeed::X4,
+                        power_mult_factor_ref_speed: PowerMultFactor::Rho1_20,
+                        target_value_modulation_function: TargetModulationValue::Gamma1_65,
+                        erase_write_ratio_ref_speed: EraseWriteRatio::Epsilon0_43
+                    },
+                    val
+                );
+            }
+        }
     }
 
     pub mod high_speed {
         use deku::{deku_derive, DekuRead};
 
         use crate::orange_book::atip::{
-            cdrw::standard::TargetModulationValue, DiscSpeed, IndicativeTargetWritingPower,
+            cdrw::{standard::TargetModulationValue, MediaTechnologyType},
+            CdrwSubtype, DiscApplicationCode, DiscSpeed, DiscType, MediaIdentificationCode,
         };
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
@@ -969,21 +889,6 @@ pub mod cdrw {
                     Self::W18_0 => 18.0,
                     Self::W19_0 => 19.0,
                     Self::W20_0 => 20.0,
-                }
-            }
-        }
-
-        impl From<IndicativeTargetWritingPower> for WritePower {
-            fn from(value: IndicativeTargetWritingPower) -> Self {
-                match value {
-                    IndicativeTargetWritingPower::W000 => WritePower::W13_0,
-                    IndicativeTargetWritingPower::W001 => WritePower::W14_0,
-                    IndicativeTargetWritingPower::W010 => WritePower::W15_0,
-                    IndicativeTargetWritingPower::W011 => WritePower::W20_0,
-                    IndicativeTargetWritingPower::W100 => WritePower::W17_0,
-                    IndicativeTargetWritingPower::W101 => WritePower::W18_0,
-                    IndicativeTargetWritingPower::W110 => WritePower::W19_0,
-                    IndicativeTargetWritingPower::W111 => WritePower::W20_0,
                 }
             }
         }
@@ -1093,6 +998,32 @@ pub mod cdrw {
 
         #[deku_derive(DekuRead)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct SpecialInformation1 {
+            #[deku(bits = 1, temp, assert_eq = "1")]
+            _m1: u8,
+            #[deku(pad_bits_after = "1")]
+            pub target_writing_power: WritePower,
+            #[deku(ctx = "3")]
+            pub reference_speed: DiscSpeed,
+
+            #[deku(bits = 1, temp, assert_eq = "0")]
+            _s1: u8,
+            pub disc_application_code: DiscApplicationCode,
+
+            #[deku(bits = 1, temp, assert_eq = "1")]
+            _f1: u8,
+            #[deku(assert_eq = "DiscType::Cdrw(CdrwSubtype::HighSpeed)")]
+            pub disc_type: DiscType,
+            #[deku(bits = 1)]
+            pub a1_valid: bool,
+            #[deku(bits = 1)]
+            pub a2_valid: bool,
+            #[deku(bits = 1)]
+            pub a3_valid: bool,
+        }
+
+        #[deku_derive(DekuRead)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct AdditionalInformation1 {
             #[deku(bits = 1, temp, assert_eq = "0")]
             _m1: u8,
@@ -1134,6 +1065,34 @@ pub mod cdrw {
             #[deku(pad_bits_after = "1")]
             pub erase_write_ratio_max_speed: EraseWriteRatio,
         }
+
+        #[deku_derive(DekuRead)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct AdditionalInformation3 {
+            #[deku(bits = 1, temp, assert_eq = "0")]
+            _m1: u8,
+            pub media_technology_type: MediaTechnologyType,
+            #[deku(bits = 5, temp)]
+            _q1q5: u16,
+
+            #[deku(bits = 1, temp, assert_eq = "1")]
+            _s1: u8,
+            #[deku(bits = 7, temp)]
+            _q6q12: u16,
+
+            #[deku(bits = 1, temp, assert_eq = "1")]
+            _f1: u8,
+            #[deku(bits = 4, temp)]
+            _q13q16: u16,
+
+            #[deku(
+                skip,
+                default = "MediaIdentificationCode(*_q1q5 << 11 | *_q6q12 << 4 | *_q13q16)"
+            )]
+            pub media_identification_code: MediaIdentificationCode,
+            #[deku(bits = 3)]
+            pub product_revision_number: u8,
+        }
     }
 
     pub mod ultra_speed {
@@ -1141,7 +1100,7 @@ pub mod cdrw {
 
         use crate::orange_book::atip::{
             cdrw::{high_speed::PowerMultFactor, standard::TargetModulationValue},
-            DiscSpeed, IndicativeTargetWritingPower,
+            CdrwSubtype, DiscApplicationCode, DiscSpeed, DiscType,
         };
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
@@ -1169,21 +1128,6 @@ pub mod cdrw {
                     Self::W42_0 => 42.0,
                     Self::W44_0 => 44.0,
                     Self::W45_0 => 45.0,
-                }
-            }
-        }
-
-        impl From<IndicativeTargetWritingPower> for WritePower {
-            fn from(value: IndicativeTargetWritingPower) -> Self {
-                match value {
-                    IndicativeTargetWritingPower::W000 => WritePower::W35_0,
-                    IndicativeTargetWritingPower::W001 => WritePower::W36_0,
-                    IndicativeTargetWritingPower::W010 => WritePower::W38_0,
-                    IndicativeTargetWritingPower::W011 => WritePower::W45_0,
-                    IndicativeTargetWritingPower::W100 => WritePower::W41_0,
-                    IndicativeTargetWritingPower::W101 => WritePower::W42_0,
-                    IndicativeTargetWritingPower::W110 => WritePower::W44_0,
-                    IndicativeTargetWritingPower::W111 => WritePower::W45_0,
                 }
             }
         }
@@ -1322,6 +1266,32 @@ pub mod cdrw {
 
         #[deku_derive(DekuRead)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct SpecialInformation1 {
+            #[deku(bits = 1, temp, assert_eq = "1")]
+            _m1: u8,
+            #[deku(pad_bits_after = "1")]
+            pub target_writing_power: WritePower,
+            #[deku(ctx = "3")]
+            pub reference_speed: DiscSpeed,
+
+            #[deku(bits = 1, temp, assert_eq = "0")]
+            _s1: u8,
+            pub disc_application_code: DiscApplicationCode,
+
+            #[deku(bits = 1, temp, assert_eq = "1")]
+            _f1: u8,
+            #[deku(assert_eq = "DiscType::Cdrw(CdrwSubtype::UltraSpeed)")]
+            pub disc_type: DiscType,
+            #[deku(bits = 1)]
+            pub a1_valid: bool,
+            #[deku(bits = 1)]
+            pub a2_valid: bool,
+            #[deku(bits = 1)]
+            pub a3_valid: bool,
+        }
+
+        #[deku_derive(DekuRead)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct AdditionalInformation1 {
             #[deku(bits = 1, temp, assert_eq = "0")]
             _m1: u8,
@@ -1364,10 +1334,40 @@ pub mod cdrw {
             #[deku(pad_bits_after = "1")]
             pub optimum_erase_power_hts_2t: ErasePowerIndication,
         }
+
+        pub use super::high_speed::AdditionalInformation3;
     }
 
     pub mod ultra_speed_plus {
+        use deku::deku_derive;
+
+        use crate::orange_book::atip::DiscApplicationCode;
+        use crate::orange_book::atip::{CdrwSubtype, DiscType};
+
+        #[deku_derive(DekuRead)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct SpecialInformation1 {
+            #[deku(bits = 1, temp, assert_eq = "1", pad_bits_after = "7")]
+            _m1: u8,
+
+            #[deku(bits = 1, temp, assert_eq = "0")]
+            _s1: u8,
+            pub disc_application_code: DiscApplicationCode,
+
+            #[deku(bits = 1, temp, assert_eq = "1")]
+            _f1: u8,
+            #[deku(assert_eq = "DiscType::Cdrw(CdrwSubtype::UltraSpeedPlus)")]
+            pub disc_type: DiscType,
+            #[deku(bits = 1)]
+            pub a1_valid: bool,
+            #[deku(bits = 1)]
+            pub a2_valid: bool,
+            #[deku(bits = 1)]
+            pub a3_valid: bool,
+        }
+
         // US24 & US32 use the same Additional Information 2 structure
         pub use super::ultra_speed::AdditionalInformation2;
+        pub use super::ultra_speed::AdditionalInformation3;
     }
 }

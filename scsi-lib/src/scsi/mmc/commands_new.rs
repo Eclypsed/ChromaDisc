@@ -3,7 +3,6 @@ use thiserror::Error;
 
 use super::features::{FeatureParser, MmcFeature};
 use super::types::{q_subchannel, Profile};
-use crate::scsi::mmc::commands_new::read_toc_pma_atip::atip::Atip;
 use crate::transport::sgio::{run_sgio, DxferDirection, ScsiError};
 
 #[derive(Debug, Error)]
@@ -93,17 +92,6 @@ mod read_toc_pma_atip {
     use crate::core::addressing::{RawLba, RawMsf};
 
     use super::*;
-
-    #[derive(Debug, Clone, Copy, IntoPrimitive)]
-    #[repr(u8)]
-    pub enum Format {
-        FormattedToc = 0b0000,
-        MultiSessionInformation = 0b0001,
-        RawToc = 0b0010,
-        Pma = 0b0011,
-        Atip = 0b0100,
-        CdText = 0b0101,
-    }
 
     const MIN_READ_TOC_PMA_ATIP_RESPONSE_LEN: usize = 4;
 
@@ -430,196 +418,9 @@ mod read_toc_pma_atip {
             Ok(read_toc_pma_atip(fd, true, Format::Pma, 0)?.into())
         }
     }
-
-    pub mod atip {
-        use deku::{deku_derive, DekuRead};
-
-        use crate::scsi::mmc::types::{
-            AdditionalInformation1, AdditionalInformation2, AdditionalInformation3, CdrwSubtype,
-            DiscApplicationCode, IndicativeOptimumWritingPower, ReferenceSpeed,
-        };
-
-        use rainbow_books::core::Msf;
-
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, DekuRead)]
-        #[deku(
-            id_type = "u8",
-            bits = 1,
-            endian = "endian",
-            ctx = "endian: deku::ctx::Endian"
-        )]
-        pub enum AtipDiscType {
-            #[deku(id = "0")]
-            Cdr(#[deku(bits = 3)] u8),
-            #[deku(id = "1")]
-            Cdrw(CdrwSubtype),
-        }
-
-        #[deku_derive(DekuRead)]
-        #[derive(Debug, PartialEq, Eq)]
-        #[deku(endian = "big")]
-        pub struct Atip {
-            // HEADER
-            #[deku(temp, pad_bytes_after = "2")]
-            _data_length: u16,
-
-            // DESCRIPTOR
-            // Byte 0 - Special Information 1
-            #[deku(bits = 1, temp, assert_eq = "1")]
-            _si1_m1: u8,
-            pub indicative_target_writing_power: IndicativeOptimumWritingPower,
-            #[deku(pad_bits_before = "1")]
-            pub reference_speed: ReferenceSpeed,
-
-            // Byte 1
-            #[deku(bits = 1, temp, assert_eq = "0")]
-            _si1_s1: u8,
-            pub disc_application_code: DiscApplicationCode,
-
-            // Bytes 2-3
-            #[deku(bits = 1, temp, assert_eq = "1")]
-            _si1_f1: u8,
-            pub disc_type: AtipDiscType,
-            #[deku(bits = 1, temp)]
-            _a1_valid: bool,
-            #[deku(bits = 1, temp)]
-            _a2_valid: bool,
-            #[deku(bits = 1, temp, pad_bytes_after = "1")]
-            _a3_valid: bool,
-
-            // Bytes 4-7 - Special Information 2
-            pub atip_lead_in_min: u8,
-            pub atip_lead_in_sec: u8,
-            #[deku(pad_bytes_after = "1")]
-            pub atip_lead_in_frame: u8,
-
-            // Bytes 8-11 - Special Information 3
-            pub atip_lead_out_min: u8,
-            pub atip_lead_out_sec: u8,
-            #[deku(pad_bytes_after = "1")]
-            pub atip_lead_out_frame: u8,
-
-            // Bytes 12-15 - Additional Information 1
-            #[deku(temp, pad_bytes_after = "1")]
-            _additional_information_1: AdditionalInformation1,
-            // Bytes 16-19 - Additional Information 2
-            #[deku(temp, pad_bytes_after = "1")]
-            _additional_information_2: AdditionalInformation2,
-            // Bytes 20-23 - Additional Information 3
-            #[deku(temp, pad_bytes_after = "1")]
-            _additional_information_3: AdditionalInformation3,
-
-            #[deku(
-                skip,
-                default = "if *_a1_valid { Some(*_additional_information_1) } else { None }"
-            )]
-            pub additional_information_1: Option<AdditionalInformation1>,
-            #[deku(
-                skip,
-                default = "if *_a2_valid { Some(*_additional_information_2) } else { None }"
-            )]
-            pub additional_information_2: Option<AdditionalInformation2>,
-            #[deku(
-                skip,
-                default = "if *_a3_valid { Some(*_additional_information_3) } else { None }"
-            )]
-            pub additional_information_3: Option<AdditionalInformation3>,
-        }
-    }
 }
 
 pub use read_toc_pma_atip::{
     read_formatted_toc_lba, read_formatted_toc_msf, FormattedToc, FormattedTocTrackDescriptor,
     TocAddress,
 };
-
-#[cfg(test)]
-mod tests {
-    use std::io::Cursor;
-
-    use deku::{reader::Reader, DekuReader};
-
-    use crate::scsi::mmc::{
-        commands_new::read_toc_pma_atip::atip::{Atip, AtipDiscType},
-        types::{CdrwSubtype, DiscApplicationCode, IndicativeOptimumWritingPower, ReferenceSpeed},
-    };
-
-    #[test]
-    fn read_atip_disc_type() {
-        let data: &[u8] = &[0b0000_1011];
-        let cursor = Cursor::new(data);
-        let mut reader = Reader::new(cursor);
-
-        let value =
-            AtipDiscType::from_reader_with_ctx(&mut reader, deku::ctx::Endian::Big).unwrap();
-
-        assert_eq!(AtipDiscType::Cdr(0b000), value);
-
-        let value =
-            AtipDiscType::from_reader_with_ctx(&mut reader, deku::ctx::Endian::Big).unwrap();
-
-        assert_eq!(AtipDiscType::Cdrw(CdrwSubtype::UltraSpeedPlus), value);
-    }
-
-    #[test]
-    fn read_atip() {
-        let data: &[u8] = &[
-            0x00,
-            0x1D,
-            0x00,
-            0x00,
-            0b1000_0000,
-            0b0000_0000,
-            0b1000_0000,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-        ];
-
-        let cursor = Cursor::new(data);
-        let mut reader = Reader::new(cursor);
-
-        let value = Atip::from_reader_with_ctx(&mut reader, ()).unwrap();
-
-        assert_eq!(
-            Atip {
-                indicative_target_writing_power: IndicativeOptimumWritingPower::MilliWatt4_0,
-                reference_speed: ReferenceSpeed::Standard,
-                disc_application_code: DiscApplicationCode::GeneralPurposeDisc,
-                disc_type: AtipDiscType::Cdr(0b000),
-                atip_lead_in_min: 0,
-                atip_lead_in_sec: 0,
-                atip_lead_in_frame: 0,
-                atip_lead_out_min: 0,
-                atip_lead_out_sec: 0,
-                atip_lead_out_frame: 0,
-                additional_information_1: None,
-                additional_information_2: None,
-                additional_information_3: None
-            },
-            value
-        );
-    }
-}

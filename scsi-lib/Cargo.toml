@@ -17,3 +17,5 @@ nix = { version = "0.30.1", features = ["fs", "ioctl"] }
 num_enum = { version = "0.7.5", features = ["complex-expressions"] }
 seq-macro = "0.3.6"
 thiserror = "2.0.17"
+generic-array = "1.4.1"
+arbitrary-int = "2.1.1"
