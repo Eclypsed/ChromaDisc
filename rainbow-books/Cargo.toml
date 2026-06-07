@@ -6,6 +6,7 @@ edition.workspace = true
 
 [dependencies]
 arbitrary-int = "2.1.1"
+bcd = { version = "0.1.0", path = "../bcd", features = ["deku"] }
 bitflags = "2.11.1"
 deku = { version = "0.20.3", features = ["bits"] }
 derive_more = "2.1.1"

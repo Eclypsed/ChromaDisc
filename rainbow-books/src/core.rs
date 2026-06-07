@@ -1,8 +1,6 @@
 use std::{fmt, ops::RangeInclusive};
 
-use arbitrary_int::u4;
-use deku::{ctx::BitSize, reader::Reader, DekuError, DekuRead, DekuReader};
-use derive_more::Display;
+use deku::{DekuError, DekuRead};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -127,80 +125,6 @@ impl fmt::Display for Msf {
         write!(f, "{:02}:{:02}:{:02}", self.0, self.1, self.2)
     }
 }
-
-fn read_u4<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-    reader: &mut Reader<R>,
-) -> Result<u4, DekuError> {
-    u8::from_reader_with_ctx(reader, BitSize(4)).map(u4::new)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DekuRead)]
-pub struct RawBcd1(#[deku(reader = "read_u4(deku::reader)")] u4);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DekuRead)]
-pub struct RawBcd2(u8);
-
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Bcd1(u4);
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Bcd2(u8);
-
-impl Bcd1 {
-    const MAX_RAW: u4 = u4::new(9);
-    pub const MAX: Self = Self(Self::MAX_RAW);
-
-    pub const fn value(&self) -> u4 {
-        debug_assert!(self.0.value() <= Self::MAX_RAW.value());
-        self.0
-    }
-}
-
-impl Bcd2 {
-    const MAX_RAW: u8 = 99;
-    pub const MAX: Self = Self(Self::MAX_RAW);
-
-    pub const fn value(&self) -> u8 {
-        debug_assert!(self.0 <= Self::MAX_RAW);
-        self.0
-    }
-
-    pub fn try_from_bcd_byte(value: u8) -> Result<Self, BcdRangeError> {
-        let high_bits = u4::new((value >> 4) & 0x0F);
-        let low_bits = u4::new(value & 0x0F);
-
-        if high_bits > Bcd1::MAX_RAW {
-            return Err(BcdRangeError(high_bits));
-        }
-        if low_bits > Bcd1::MAX_RAW {
-            return Err(BcdRangeError(low_bits));
-        }
-
-        Ok(Self(high_bits.value() * 10 + low_bits.value()))
-    }
-}
-
-impl TryFrom<RawBcd1> for Bcd1 {
-    type Error = BcdRangeError;
-
-    fn try_from(value: RawBcd1) -> Result<Self, Self::Error> {
-        if value.0 <= Self::MAX_RAW {
-            Ok(Self(value.0))
-        } else {
-            Err(BcdRangeError(value.0))
-        }
-    }
-}
-
-impl TryFrom<RawBcd2> for Bcd2 {
-    type Error = BcdRangeError;
-
-    fn try_from(value: RawBcd2) -> Result<Self, Self::Error> {
-        Self::try_from_bcd_byte(value.0)
-    }
-}
-
-#[derive(Debug, Error)]
-#[error("BCD digit 0x{0:X} out of valid range: {min}-{max}", min = u4::new(0), max = Bcd1::MAX_RAW)]
-pub struct BcdRangeError(u4);
 
 #[cfg(test)]
 mod feature_deku_tests {

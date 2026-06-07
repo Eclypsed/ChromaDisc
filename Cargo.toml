@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["chromadisc", "scsi-lib", "mmc-errors", "rainbow-books"]
+members = ["chromadisc", "scsi-lib", "mmc-errors", "rainbow-books", "bcd"]
 
 [workspace.package]
 version = "0.1.0"

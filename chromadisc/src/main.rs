@@ -1,10 +1,9 @@
 use std::io;
 
-use rainbow_books::core::RawMsf;
 use scsi_lib::{
     core::constants::CHROMADISC_VERSION,
     device::{scan_sysfs, Drive},
-    scsi::mmc::commands::read_toc_pma_atip::{format::RawToc, ReadTocPmaAtip},
+    scsi::mmc::commands::read_toc_pma_atip::{raw_toc::RawToc, ReadTocPmaAtip},
     // scsi::mmc::commands::{
     //     execute,
     //     get_configuration::{GetConfiguration, RTField},
@@ -62,14 +61,12 @@ fn main() -> io::Result<()> {
 
     let drive = Drive::new(devices[0].clone());
 
-    let cmd = ReadTocPmaAtip::<RawMsf, RawToc>::new(0, 4096, 0.into());
+    let cmd = ReadTocPmaAtip::<RawToc>::new(0, 4096, 0.into());
 
     let result = drive.execute(cmd).unwrap();
 
     println!("Raw TOC:");
     println!("{result:#?}");
-
-    // let fd = get_file_descriptor(devices[0].devnode.as_str()).unwrap();
 
     // let timestamp = Local::now();
     // println!("ChromaDisc extraction logfile from {timestamp}");

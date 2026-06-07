@@ -70,49 +70,52 @@ impl<'a> DekuReader<'a> for Control {
     where
         Self: Sized,
     {
-        let bits = u8::from_reader_with_ctx(reader, BitSize(4))?;
-        Ok(Self::from_bits_retain(bits))
+        Ok(Self::from_bits_retain(u8::from_reader_with_ctx(
+            reader,
+            BitSize(4),
+        )?))
     }
 }
 
+use bcd::{bcd, Bcd};
 use deku::{ctx::BitSize, deku_error, reader::Reader, DekuError, DekuReader};
 use thiserror::Error;
 
-use crate::core::{Bcd2, Msf};
+use crate::core::Msf;
 
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PaTrackNumber(u8);
+pub struct PaTrackNumber(Bcd<1>);
 
 impl PaTrackNumber {
-    pub const MIN: Self = Self(1);
-    pub const MAX: Self = Self(99);
+    pub const MIN: Self = Self(bcd!(1));
+    pub const MAX: Self = Self(bcd!(99));
 }
 
-impl TryFrom<u8> for PaTrackNumber {
-    type Error = PaTrackNumberRangeError;
+// impl TryFrom<u8> for PaTrackNumber {
+//     type Error = PaTrackNumberRangeError;
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if !(Self::MIN.0..=Self::MAX.0).contains(&value) {
-            return Err(PaTrackNumberRangeError(value));
-        }
+//     fn try_from(value: u8) -> Result<Self, Self::Error> {
+//         if !(Self::MIN.0..=Self::MAX.0).contains(&value) {
+//             return Err(PaTrackNumberRangeError(value));
+//         }
 
-        Ok(Self(value))
-    }
-}
+//         Ok(Self(value))
+//     }
+// }
 
-impl TryFrom<Bcd2> for PaTrackNumber {
-    type Error = PaTrackNumberRangeError;
+// impl TryFrom<Bcd2> for PaTrackNumber {
+//     type Error = PaTrackNumberRangeError;
 
-    fn try_from(value: Bcd2) -> Result<Self, Self::Error> {
-        Self::try_from(value.value())
-    }
-}
+//     fn try_from(value: Bcd2) -> Result<Self, Self::Error> {
+//         Self::try_from(value.value())
+//     }
+// }
 
 #[derive(Debug, Error)]
 #[error(
     "Invalid PaTrackNumber: {0}. Expected {min:02}-{max:02}",
     min = PaTrackNumber::MIN,
-    max = PaTrackNumber::MAX,
+    max = PaTrackNumber::MAX
 )]
 pub struct PaTrackNumberRangeError(u8);
 
@@ -131,41 +134,41 @@ impl TrackNumber {
     const LEAD_OUT_RAW: u8 = 0xAA;
 }
 
-#[derive(Debug, Error)]
-#[error(
-    "Invalid TrackNumber: {0}. Expected {li:02}, {pa_min:02}-{pa_max:02}, or {lo:02X}",
-    li = TrackNumber::LEAD_IN_RAW,
-    pa_min = 0,
-    pa_max = crate::core::Bcd1::MAX,
-    lo = TrackNumber::LEAD_OUT_RAW
-)]
-pub struct TrackNumberRangeError(u8);
+// #[derive(Debug, Error)]
+// #[error(
+//     "Invalid TrackNumber: {0}. Expected {li:02}, {pa_min:02}-{pa_max:02}, or {lo:02X}",
+//     li = TrackNumber::LEAD_IN_RAW,
+//     pa_min = 0,
+//     pa_max = crate::core::Bcd1::MAX,
+//     lo = TrackNumber::LEAD_OUT_RAW
+// )]
+// pub struct TrackNumberRangeError(u8);
 
-impl TryFrom<u8> for TrackNumber {
-    type Error = TrackNumberRangeError;
+// impl TryFrom<u8> for TrackNumber {
+//     type Error = TrackNumberRangeError;
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            Self::LEAD_IN_RAW => Ok(Self::LeadIn),
-            Self::LEAD_OUT_RAW => Ok(Self::LeadOut),
-            tno => Bcd2::try_from_bcd_byte(tno)
-                .ok()
-                .and_then(|bcd| PaTrackNumber::try_from(bcd).ok())
-                .map(Self::ProgramArea)
-                .ok_or(TrackNumberRangeError(tno)),
-        }
-    }
-}
+//     fn try_from(value: u8) -> Result<Self, Self::Error> {
+//         match value {
+//             Self::LEAD_IN_RAW => Ok(Self::LeadIn),
+//             Self::LEAD_OUT_RAW => Ok(Self::LeadOut),
+//             tno => Bcd2::try_from_bcd_byte(tno)
+//                 .ok()
+//                 .and_then(|bcd| PaTrackNumber::try_from(bcd).ok())
+//                 .map(Self::ProgramArea)
+//                 .ok_or(TrackNumberRangeError(tno)),
+//         }
+//     }
+// }
 
-impl<'a> DekuReader<'a> for TrackNumber {
-    fn from_reader_with_ctx<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-        reader: &mut Reader<R>,
-        _: (),
-    ) -> Result<Self, DekuError> {
-        let raw_tno = u8::from_reader_with_ctx(reader, ())?;
-        Self::try_from(raw_tno).map_err(|e| deku_error!(DekuError::Parse, e.to_string()))
-    }
-}
+// impl<'a> DekuReader<'a> for TrackNumber {
+//     fn from_reader_with_ctx<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
+//         reader: &mut Reader<R>,
+//         _: (),
+//     ) -> Result<Self, DekuError> {
+//         let raw_tno = u8::from_reader_with_ctx(reader, ())?;
+//         Self::try_from(raw_tno).map_err(|e| deku_error!(DekuError::Parse, e.to_string()))
+//     }
+// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProgramAreaFormat {
@@ -199,7 +202,7 @@ pub struct SubcodeQ<P: DataQ> {
 // ADR=1 in Program Area
 pub struct TrackPosition {
     pub tno: PaTrackNumber,
-    pub index: Bcd2,
+    pub index: Bcd<2>,
     pub relative_time: Msf,
     pub absolute_time: Msf,
 }
@@ -211,7 +214,8 @@ impl_dataq!(TrackPosition, 1);
 // Mode-1 Q
 pub mod mode1_q {
     use super::ProgramAreaFormat;
-    use crate::core::{Bcd2, RawMsf};
+    use crate::core::RawMsf;
+    use bcd::Bcd;
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum DataQ {
@@ -226,7 +230,7 @@ pub mod mode1_q {
     // TNO 0x00 - POINT 01-99bcd
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct TrackEntry {
-        track_number: Bcd2,
+        track_number: Bcd<2>,
         lead_in_running_time: RawMsf,
         track_start_time: RawMsf,
     }
@@ -235,7 +239,7 @@ pub mod mode1_q {
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct FirstTrack {
         lead_in_running_time: RawMsf,
-        first_track_number: Bcd2,
+        first_track_number: Bcd<2>,
         program_area_format: ProgramAreaFormat,
     }
 
@@ -243,7 +247,7 @@ pub mod mode1_q {
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct LastTrack {
         lead_in_running_time: RawMsf,
-        last_track_number: Bcd2,
+        last_track_number: Bcd<2>,
     }
 
     // TNO 0x00 - POINT A2 - Staring point of lead out track
@@ -256,7 +260,7 @@ pub mod mode1_q {
     // TNO 01-99bcd - INDEX 00-99bcd
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct Track {
-        track_number: Bcd2,
+        track_number: Bcd<2>,
         index: u8,
         relative_time: RawMsf,
         absolute_time: RawMsf,
@@ -287,7 +291,8 @@ pub struct Isrc {
 }
 
 pub mod mode5_q {
-    use crate::core::{Bcd2, RawMsf};
+    use crate::core::RawMsf;
+    use bcd::Bcd;
 
     // POINT 01h-40h (Audio only: This identifies a specific playback skip interval)
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -314,7 +319,7 @@ pub mod mode5_q {
     // POINT B2h, B3h, B4h (Audio only: This identifies tracks that should be skipped during playback)
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub struct SkipTrackAssignment {
-        tracks: Vec<Bcd2>,
+        tracks: Vec<Bcd<2>>,
     }
 
     // POINT C0h (Together with POINT=B0h, this is used to identify a multi-session disc)

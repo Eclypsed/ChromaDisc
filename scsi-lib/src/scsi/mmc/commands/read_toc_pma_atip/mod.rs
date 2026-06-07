@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use arbitrary_int::u4;
 use rainbow_books::core::RawMsf;
 
 use crate::core::addressing::Lba;
@@ -15,107 +14,95 @@ pub mod pma;
 pub mod raw_toc;
 
 mod private {
-    pub trait AddressingModeSeal {}
-    pub trait FormatSeal {}
-    pub trait ReadTocPmaAtipSeal {}
+    pub trait AddressingModeSeal {
+        const MSF: bool;
+    }
+    pub trait ReadTocPmaAtipFormat {
+        const MSF: bool;
+        const FORMAT: u8;
+    }
 }
 
-pub trait AddressingMode: private::AddressingModeSeal {
-    const MSF: bool;
-}
+pub trait AddressingMode: private::AddressingModeSeal {}
 
-impl private::AddressingModeSeal for RawMsf {}
-impl AddressingMode for RawMsf {
+impl private::AddressingModeSeal for RawMsf {
     const MSF: bool = true;
 }
+impl AddressingMode for RawMsf {}
 
-impl private::AddressingModeSeal for Lba {}
-impl AddressingMode for Lba {
+impl private::AddressingModeSeal for Lba {
     const MSF: bool = false;
 }
-
-pub trait Format: private::FormatSeal {
-    const FORMAT: u4; // 4-bit format field
-}
-
-pub mod format {
-    use arbitrary_int::u4;
-
-    macro_rules! impl_format_field {
-        ($($name:ident = $value:literal),+ $(,)?) => {
-            $(
-                pub struct $name;
-                impl super::private::FormatSeal for $name {}
-                impl super::Format for $name {
-                    const FORMAT: u4 = u4::new($value);
-                }
-            )+
-        };
-    }
-
-    impl_format_field!(
-        FormattedToc = 0b0000,
-        MultiSessionInformation = 0b0001,
-        RawToc = 0b0010,
-        Pma = 0b0011,
-        Atip = 0b0100,
-        CdText = 0b0101,
-    );
-}
+impl AddressingMode for Lba {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ReadTocPmaAtip<A: AddressingMode, F: Format> {
-    _msf_marker: PhantomData<A>,
-    _format_marker: PhantomData<F>,
+pub struct ReadTocPmaAtip<R: ReadTocPmaAtipResponse> {
+    _response_marker: PhantomData<R>,
     track_session_number: u8,
     allocation_length: u16,
     control: Control,
 }
 
-pub trait ReadTocPmaAtipDef: private::ReadTocPmaAtipSeal {
-    type Response: Response;
+pub trait ReadTocPmaAtipResponse: private::ReadTocPmaAtipFormat + Response {}
+
+// Formatted TOC
+impl<A: formatted_toc::TrackStartAddress> private::ReadTocPmaAtipFormat
+    for formatted_toc::FormattedToc<A>
+{
+    const MSF: bool = A::MSF;
+    const FORMAT: u8 = 0b0000;
+}
+impl<A: formatted_toc::TrackStartAddress> ReadTocPmaAtipResponse
+    for formatted_toc::FormattedToc<A>
+{
 }
 
-macro_rules! impl_read_toc_pma_atip_def {
-    ($a:ty, $f:ty, $response:ty) => {
-        impl private::ReadTocPmaAtipSeal for ReadTocPmaAtip<$a, $f> {}
-        impl ReadTocPmaAtipDef for ReadTocPmaAtip<$a, $f> {
-            type Response = $response;
-        }
-    };
+// Multi-session Information
+impl<A: multi_session_info::TrackStartAddress> private::ReadTocPmaAtipFormat
+    for multi_session_info::MultiSessionInformation<A>
+{
+    const MSF: bool = A::MSF;
+    const FORMAT: u8 = 0b0001;
+}
+impl<A: multi_session_info::TrackStartAddress> ReadTocPmaAtipResponse
+    for multi_session_info::MultiSessionInformation<A>
+{
 }
 
-impl_read_toc_pma_atip_def!(Lba, format::FormattedToc, formatted_toc::FormattedToc<Lba>);
-impl_read_toc_pma_atip_def!(
-    RawMsf,
-    format::FormattedToc,
-    formatted_toc::FormattedToc<RawMsf>
-);
-impl_read_toc_pma_atip_def!(
-    Lba,
-    format::MultiSessionInformation,
-    multi_session_info::MultiSessionInformation<Lba>
-);
-impl_read_toc_pma_atip_def!(
-    RawMsf,
-    format::MultiSessionInformation,
-    multi_session_info::MultiSessionInformation<RawMsf>
-);
-impl_read_toc_pma_atip_def!(RawMsf, format::RawToc, raw_toc::RawToc);
-impl_read_toc_pma_atip_def!(RawMsf, format::Pma, pma::Pma);
-impl_read_toc_pma_atip_def!(RawMsf, format::Atip, atip::Atip);
+// Raw TOC
+impl private::ReadTocPmaAtipFormat for raw_toc::RawToc {
+    const MSF: bool = <RawMsf as private::AddressingModeSeal>::MSF;
+    const FORMAT: u8 = 0b0010;
+}
+impl ReadTocPmaAtipResponse for raw_toc::RawToc {}
+
+// PMA
+impl private::ReadTocPmaAtipFormat for pma::Pma {
+    const MSF: bool = <RawMsf as private::AddressingModeSeal>::MSF;
+    const FORMAT: u8 = 0b0011;
+}
+impl ReadTocPmaAtipResponse for pma::Pma {}
+
+// ATIP
+impl private::ReadTocPmaAtipFormat for atip::Atip {
+    const MSF: bool = <RawMsf as private::AddressingModeSeal>::MSF;
+    const FORMAT: u8 = 0b0100;
+}
+impl ReadTocPmaAtipResponse for atip::Atip {}
+
+// CD-TEXT
 // ? [MMC-6] doesn't actually say that the MSF bit for CD-TEXT can't be zero, but all the other
 // ? formats for which the MSF Field is "Ignored by Drive", describe the MSF bit to be set to one.
-impl_read_toc_pma_atip_def!(RawMsf, format::CdText, cd_text::CdText);
+impl private::ReadTocPmaAtipFormat for cd_text::CdText {
+    const MSF: bool = <RawMsf as private::AddressingModeSeal>::MSF;
+    const FORMAT: u8 = 0b0101;
+}
+impl ReadTocPmaAtipResponse for cd_text::CdText {}
 
-impl<A: AddressingMode, F: Format> ReadTocPmaAtip<A, F>
-where
-    ReadTocPmaAtip<A, F>: ReadTocPmaAtipDef,
-{
+impl<R: ReadTocPmaAtipResponse> ReadTocPmaAtip<R> {
     pub fn new(track_session_number: u8, allocation_length: u16, control: Control) -> Self {
         Self {
-            _msf_marker: PhantomData,
-            _format_marker: PhantomData,
+            _response_marker: PhantomData,
             track_session_number,
             allocation_length,
             control,
@@ -125,17 +112,14 @@ where
 
 type ReadTocPmaAtipOpCode = OpCode<0x43>;
 
-impl<A: AddressingMode, F: Format> Command<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<A, F>
-where
-    ReadTocPmaAtip<A, F>: ReadTocPmaAtipDef,
-{
-    type Response = <Self as ReadTocPmaAtipDef>::Response;
+impl<R: ReadTocPmaAtipResponse> Command<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<R> {
+    type Response = R;
 
     fn as_cdb(&self) -> <ReadTocPmaAtipOpCode as OpCodeDef>::Cdb {
         [
             ReadTocPmaAtipOpCode::OP_CODE,
-            (u8::from(A::MSF) << 1),
-            F::FORMAT.value(),
+            (u8::from(R::MSF) << 1),
+            (R::FORMAT & 0x0F),
             0,
             0,
             0,
