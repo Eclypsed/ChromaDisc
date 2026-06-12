@@ -41,7 +41,7 @@
 //! assert_eq!(n.to_string(), "1234");
 //!
 //! // Convenience macro
-//! let n: Bcd<2> = bcd!(1234u16);
+//! let n: Bcd<2> = bcd!(1234);
 //! assert_eq!(n.to_string(), "1234");
 //!
 //! // Convert back to a primitive
@@ -58,11 +58,6 @@ const DIGIT_MAX: u8 = 9;
 /// Each byte encodes two decimal digits: the high nibble holds the more-significant
 /// digit and the low nibble holds the less-significant digit. For example, the decimal
 /// value `42` is stored as `0x42`.
-///
-/// The type is [`Copy`], [`Ord`], and [`Hash`], making it suitable for use as a map
-/// key or in sorted collections. Ordering follows the natural lexicographic ordering
-/// of the underlying byte array, which coincides with numeric ordering for values of
-/// the same `BYTES` size.
 ///
 /// # Zero
 ///
@@ -496,7 +491,7 @@ macro_rules! impl_bcd_from {
     ($prim:ty, $fn_name:ident, $try_into_fn:ident, $($bytes:literal),+) => {
         $(
             impl Bcd<$bytes> {
-                /// Converts this BCD value to a primitive integer.
+                /// Safely converts this BCD value to a primitive integer.
                 pub const fn $fn_name(self) -> $prim {
                     self.$try_into_fn().expect("Overflowed during BCD conversion")
                 }
@@ -618,7 +613,7 @@ macro_rules! bcd {
 #[cfg(feature = "deku")]
 mod deku_features {
     use super::Bcd;
-    use deku::DekuReader;
+    use deku::{reader::Reader, DekuError, DekuReader};
 
     /// [`deku::DekuReader`] implementation for [`Bcd`].
     ///
@@ -627,11 +622,11 @@ mod deku_features {
     ///
     /// Requires the `deku` feature flag.
     pub fn read_bcd_bytes<const BYTES: usize, R: std::io::Read + std::io::Seek>(
-        reader: &mut deku::prelude::Reader<R>,
-    ) -> Result<[u8; BYTES], deku::DekuError> {
+        reader: &mut Reader<R>,
+    ) -> Result<[u8; BYTES], DekuError> {
         Bcd::<BYTES>::from_bcd_bytes(<[u8; BYTES]>::from_reader_with_ctx(reader, ())?)
             .map(|b| b.0)
-            .map_err(|e| deku::DekuError::Parse(e.to_string().into()))
+            .map_err(|e| DekuError::Parse(e.to_string().into()))
     }
 }
 

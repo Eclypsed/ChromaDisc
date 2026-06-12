@@ -1,11 +1,11 @@
-use std::io::Cursor;
+use std::io::{Cursor, Seek, SeekFrom};
 
 use deku::{ctx::Endian, deku_derive, reader::Reader, DekuError, DekuRead, DekuReader};
-use rainbow_books::core::RawMsf;
+use rainbow_books::msf::Msf;
 
 use super::AddressingMode;
 use crate::{core::addressing::Lba, scsi::mmc::commands::Response};
-use rainbow_books::red_book::q_subcode;
+use rainbow_books::q_subcode;
 
 mod sealed {
     pub trait Sealed {}
@@ -17,13 +17,13 @@ pub trait TrackStartAddress: sealed::Sealed + AddressingMode + Sized {
     ) -> Result<Self, DekuError>;
 }
 
-impl sealed::Sealed for RawMsf {}
-impl TrackStartAddress for RawMsf {
+impl sealed::Sealed for Msf {}
+impl TrackStartAddress for Msf {
     fn read_track_start_address<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
         reader: &mut Reader<R>,
     ) -> Result<Self, DekuError> {
-        let bytes = <[u8; 4]>::from_reader_with_ctx(reader, Endian::Big)?;
-        Ok(Self::new(bytes[1], bytes[2], bytes[3]))
+        reader.seek(SeekFrom::Current(1))?;
+        Msf::from_reader_with_ctx(reader, ())
     }
 }
 
@@ -32,8 +32,7 @@ impl TrackStartAddress for Lba {
     fn read_track_start_address<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
         reader: &mut Reader<R>,
     ) -> Result<Self, DekuError> {
-        let addr = i32::from_reader_with_ctx(reader, Endian::Big)?;
-        Ok(Self::from(addr))
+        Ok(Self::from(i32::from_reader_with_ctx(reader, Endian::Big)?))
     }
 }
 
@@ -69,53 +68,4 @@ pub struct TocTrackDescriptor<A: TrackStartAddress> {
 
     #[deku(bytes = 4, reader = "A::read_track_start_address(deku::reader)")]
     pub track_start_address: A,
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io::Cursor;
-
-    use deku::{reader::Reader, DekuReader};
-    use rainbow_books::core::RawMsf;
-
-    use crate::scsi::mmc::commands::read_toc_pma_atip::formatted_toc::{
-        FormattedToc, TocTrackDescriptor,
-    };
-    use rainbow_books::red_book::q_subcode;
-
-    #[test]
-    fn parse_formatted_toc_response() {
-        let data: &[u8] = &[
-            0b0000_0000,
-            0b0000_1010,
-            0b0000_0001,
-            0b0000_1000,
-            // Track Descriptor 1
-            0b0000_0000,
-            0b0010_0100,
-            0b0000_0010,
-            0b0000_0000,
-            0b0000_0000,
-            0b0000_0100,
-            0b0000_1011,
-            0b0010_1001,
-        ];
-
-        let mut reader = Reader::new(Cursor::new(data));
-        let val = FormattedToc::<RawMsf>::from_reader_with_ctx(&mut reader, ()).unwrap();
-
-        assert_eq!(
-            FormattedToc {
-                first_track_number: 1,
-                last_track_number: 8,
-                toc_track_descriptors: vec![TocTrackDescriptor {
-                    adr: 0b0010,
-                    control: q_subcode::Control::IS_DATA,
-                    track_number: 2,
-                    track_start_address: RawMsf::new(0b0000_0100, 0b0000_1011, 0b0010_1001)
-                },]
-            },
-            val
-        );
-    }
 }

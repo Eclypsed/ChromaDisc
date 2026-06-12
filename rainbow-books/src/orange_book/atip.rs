@@ -1,5 +1,9 @@
-use std::io::{Seek, SeekFrom};
+use std::{
+    error::Error,
+    io::{Seek, SeekFrom},
+};
 
+use bcd::Bcd;
 use deku::{
     ctx::{BitSize, Order},
     deku_derive,
@@ -7,7 +11,7 @@ use deku::{
     DekuError, DekuRead, DekuReader,
 };
 
-use crate::core::RawMsf;
+use crate::msf::{Frame, Minute, Msf, Second};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiscType {
@@ -134,51 +138,90 @@ impl<'a> DekuReader<'a> for SpecialInformation1 {
 #[deku_derive(DekuRead)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SpecialInformation2 {
-    #[deku(bits = 1, temp, assert_eq = "1")]
+    #[deku(bits = 1, temp, assert_eq = "1", pad_bits_after = "7")]
     _m1: u8,
-    #[deku(bits = 7, temp)]
-    _m2m8: u8,
 
-    #[deku(bits = 1, temp, assert_eq = "1")]
+    #[deku(bits = 1, temp, assert_eq = "1", pad_bits_after = "7")]
     _s1: u8,
-    #[deku(bits = 7, temp)]
-    _s2s8: u8,
 
-    #[deku(bits = 1, temp, assert_eq = "0")]
+    #[deku(bits = 1, temp, assert_eq = "0", pad_bits_after = "7")]
     _f1: u8,
-    #[deku(bits = 7, temp)]
-    _f2f8: u8,
 
     #[deku(
-        skip,
-        default = "RawMsf::from_bcd(*_m2m8 | 0x80, *_s2s8 & 0x7F, *_f2f8 & 0x7F)"
+        seek_from_current = "-3",
+        reader = "SpecialInformation2::read_lead_in_start_time(deku::reader)"
     )]
-    pub lead_in_start_time: RawMsf,
+    pub lead_in_start_time: Msf,
+}
+
+impl SpecialInformation2 {
+    fn read_lead_in_start_time<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
+        reader: &mut Reader<R>,
+    ) -> Result<Msf, DekuError> {
+        fn parse_err(e: impl Error) -> DekuError {
+            DekuError::Parse(e.to_string().into())
+        }
+
+        let mut bytes = <[u8; 3]>::from_reader_with_ctx(reader, ())?;
+        bytes[0] |= 0x80;
+        bytes[1] &= 0x7F;
+        bytes[2] &= 0x7f;
+
+        for byte in bytes.iter_mut() {
+            *byte = Bcd::<1>::from_bcd_bytes([*byte])
+                .map(|bcd| bcd.into_u8())
+                .map_err(parse_err)?;
+        }
+
+        Ok(Msf::new(
+            Minute::try_from(bytes[0]).map_err(parse_err)?,
+            Second::try_from(bytes[1]).map_err(parse_err)?,
+            Frame::try_from(bytes[2]).map_err(parse_err)?,
+        ))
+    }
 }
 
 #[deku_derive(DekuRead)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SpecialInformation3 {
-    #[deku(bits = 1, temp, assert_eq = "1")]
+    #[deku(bits = 1, temp, assert_eq = "1", pad_bits_after = "7")]
     _m1: u8,
-    #[deku(bits = 7, temp)]
-    _m2m8: u8,
 
-    #[deku(bits = 1, temp, assert_eq = "1")]
+    #[deku(bits = 1, temp, assert_eq = "1", pad_bits_after = "7")]
     _s1: u8,
-    #[deku(bits = 7, temp)]
-    _s2s8: u8,
 
-    #[deku(bits = 1, temp, assert_eq = "1")]
+    #[deku(bits = 1, temp, assert_eq = "0", pad_bits_after = "7")]
     _f1: u8,
-    #[deku(bits = 7, temp)]
-    _f2f8: u8,
 
     #[deku(
-        skip,
-        default = "RawMsf::from_bcd(*_m2m8 & 0x7F, *_s2s8 & 0x7F, *_f2f8 & 0x7F)"
+        seek_from_current = "-3",
+        reader = "SpecialInformation3::read_lead_out_start_time(deku::reader)"
     )]
-    pub lead_out_start_time: RawMsf,
+    pub lead_out_start_time: Msf,
+}
+
+impl SpecialInformation3 {
+    fn read_lead_out_start_time<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
+        reader: &mut Reader<R>,
+    ) -> Result<Msf, DekuError> {
+        fn parse_err(e: impl Error) -> DekuError {
+            DekuError::Parse(e.to_string().into())
+        }
+
+        let mut bytes = <[u8; 3]>::from_reader_with_ctx(reader, ())?.map(|b| b & 0x7f);
+
+        for byte in bytes.iter_mut() {
+            *byte = Bcd::<1>::from_bcd_bytes([*byte])
+                .map(|bcd| bcd.into_u8())
+                .map_err(parse_err)?;
+        }
+
+        Ok(Msf::new(
+            Minute::try_from(bytes[0]).map_err(parse_err)?,
+            Second::try_from(bytes[1]).map_err(parse_err)?,
+            Frame::try_from(bytes[2]).map_err(parse_err)?,
+        ))
+    }
 }
 
 pub mod cdr {

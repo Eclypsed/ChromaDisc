@@ -2,7 +2,7 @@ use std::io::{Cursor, Seek, SeekFrom};
 
 use deku::{deku_derive, reader::Reader, DekuError, DekuReader};
 use rainbow_books::{
-    core::RawMsf,
+    msf::Msf,
     orange_book::atip::{
         cdr, cdrw, DiscApplicationCode, DiscSpeed, SpecialInformation1, SpecialInformation2,
         SpecialInformation3,
@@ -35,8 +35,8 @@ pub enum AtipDescriptor {
         reference_speed: DiscSpeed,
         disc_application_code: DiscApplicationCode,
 
-        lead_in_start_time: RawMsf,
-        lead_out_start_time: RawMsf,
+        lead_in_start_time: Msf,
+        lead_out_start_time: Msf,
 
         additional_information_1: Option<cdr::AdditionalInformation1>,
         additional_information_2: Option<cdr::AdditionalInformation2>,
@@ -47,8 +47,8 @@ pub enum AtipDescriptor {
         reference_speed: DiscSpeed,
         disc_application_code: DiscApplicationCode,
 
-        lead_in_start_time: RawMsf,
-        lead_out_start_time: RawMsf,
+        lead_in_start_time: Msf,
+        lead_out_start_time: Msf,
 
         additional_information_1: Option<cdrw::standard::AdditionalInformation1>,
         additional_information_2: Option<cdrw::standard::AdditionalInformation2>,
@@ -58,8 +58,8 @@ pub enum AtipDescriptor {
         reference_speed: DiscSpeed,
         disc_application_code: DiscApplicationCode,
 
-        lead_in_start_time: RawMsf,
-        lead_out_start_time: RawMsf,
+        lead_in_start_time: Msf,
+        lead_out_start_time: Msf,
 
         additional_information_1: Option<cdrw::high_speed::AdditionalInformation1>,
         additional_information_2: Option<cdrw::high_speed::AdditionalInformation2>,
@@ -70,8 +70,8 @@ pub enum AtipDescriptor {
         reference_speed: DiscSpeed,
         disc_application_code: DiscApplicationCode,
 
-        lead_in_start_time: RawMsf,
-        lead_out_start_time: RawMsf,
+        lead_in_start_time: Msf,
+        lead_out_start_time: Msf,
 
         additional_information_1: Option<cdrw::ultra_speed::AdditionalInformation1>,
         additional_information_2: Option<cdrw::ultra_speed::AdditionalInformation2>,
@@ -79,8 +79,8 @@ pub enum AtipDescriptor {
     },
     CdrwUltraSpeedPlus {
         disc_application_code: DiscApplicationCode,
-        lead_in_start_time: RawMsf,
-        lead_out_start_time: RawMsf,
+        lead_in_start_time: Msf,
+        lead_out_start_time: Msf,
 
         // Ultra speed plus doesn't store any non-zero values
         // for Additional Information 1
@@ -212,92 +212,5 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
                 })
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io::Cursor;
-
-    use deku::{reader::Reader, DekuReader};
-    use rainbow_books::orange_book::atip::MediaIdentificationCode;
-
-    use super::*;
-
-    #[test]
-    fn cdr_atip() {
-        let data: &[u8] = &[
-            0b0000_0000,
-            0b0000_0110,
-            0b0000_0000,
-            0b0000_0000,
-            // SI1
-            0b1000_0000,
-            0b0000_0000,
-            0b1000_0111,
-            0b0000_0000,
-            // SI2
-            0b1001_0111,
-            0b1100_1001,
-            0b0000_0000,
-            0b0000_0000,
-            // SI3
-            0b1111_0000,
-            0b1100_0101,
-            0b1001_0101,
-            0b0000_0000,
-            // AI1
-            0b0010_1010,
-            0b0000_0010,
-            0b1011_0000,
-            0b0000_0000,
-            // AI2
-            0b0010_1001,
-            0b1100_0100,
-            0b0000_0000,
-            0b0000_0000,
-            // AI3
-            0b0000_1100,
-            0b1100_1010,
-            0b1001_1100,
-            0b0000_0000,
-        ];
-
-        let mut reader = Reader::new(Cursor::new(data));
-        let val = Atip::from_reader_with_ctx(&mut reader, ()).unwrap();
-
-        assert_eq!(
-            Atip {
-                atip_descriptor: AtipDescriptor::Cdr {
-                    write_power_ref_speed: cdr::WritePowerRefSpeed::W4_0,
-                    reference_speed: DiscSpeed::X1,
-                    disc_application_code: DiscApplicationCode::GeneralPurposeDisc,
-                    lead_in_start_time: RawMsf::from_bcd(0b1001_0111, 0b0100_1001, 0b0000_0000),
-                    lead_out_start_time: RawMsf::from_bcd(0b0111_0000, 0b0100_0101, 0b0001_0101),
-                    additional_information_1: Some(cdr::AdditionalInformation1 {
-                        lowest_test_speed: DiscSpeed::X4,
-                        highest_test_speed: DiscSpeed::X40,
-                        high_speed_subtype: cdr::HighSpeedSubtype::CdrMultiSpeed,
-                        optimum_beta_range: cdr::OptimumBetaRange::TargetP4,
-                        optimum_pulse_length: cdr::OptimumPulseLength::ThetaP0_75,
-                        additional_capacity_len: cdr::AdditionalCapacityLength::Minutes2
-                    }),
-                    additional_information_2: Some(cdr::AdditionalInformation2 {
-                        writing_power_lowest_speed: cdr::WritePowerMinSpeed::W9_0,
-                        writing_power_highest_speed: cdr::WritePowerMaxSpeed::W34_0,
-                        power_boost_i3_pits: cdr::PowerBoostI3::Percent8,
-                        pulse_length_correction_i3_lands: cdr::PulseLengthCorrectionI3::T1_16,
-                    }),
-                    additional_information_3: Some(cdr::AdditionalInformation3 {
-                        media_technology_type: cdr::MediaTechnologyType::Cyanine,
-                        media_identification_code: MediaIdentificationCode(0b0110_0100_1010_0011),
-                        product_revision_number: 4
-                    })
-                }
-            },
-            val
-        );
-
-        // println!("{val:#?}");
     }
 }

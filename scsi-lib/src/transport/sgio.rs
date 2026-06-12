@@ -111,13 +111,8 @@ pub fn run_sgio(
     let mut data = vec![0u8; allocation_len];
 
     let cdb_len = cdb.len();
-    let Ok(cmd_len) = u8::try_from(cdb_len) else {
-        return Err(ScsiError::InvalidCDB(cdb_len));
-    };
-
-    let Ok(dxfer_len) = u32::try_from(allocation_len) else {
-        return Err(ScsiError::InvalidData(allocation_len));
-    };
+    let cmd_len = u8::try_from(cdb_len).map_err(|_| ScsiError::InvalidCDB(cdb_len))?;
+    let dxfer_len = u32::try_from(allocation_len).map_err(|_| ScsiError::InvalidData(allocation_len))?;
 
     let mut header = SgIoHeader {
         interface_id: 'S' as i32,
@@ -148,9 +143,7 @@ pub fn run_sgio(
         ioctl_sg_io(fd, &mut header)?;
     }
 
-    let Ok(status) = StatusCondition::try_from_primitive(header.masked_status) else {
-        return Err(ScsiError::UnknownStatus(header.masked_status));
-    };
+    let status = StatusCondition::try_from_primitive(header.masked_status).map_err(|_| ScsiError::UnknownStatus(header.masked_status))?;
 
     // Note: If status == ConditionGood, then there *is* sense data available, but idk if I really
     // care about that.

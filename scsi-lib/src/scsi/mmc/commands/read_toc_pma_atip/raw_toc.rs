@@ -1,9 +1,8 @@
 use std::io::Cursor;
 
-use deku::{
-    ctx::BitSize, deku_derive, deku_error, reader::Reader, DekuError, DekuRead, DekuReader,
-};
-use rainbow_books::{core::RawMsf, red_book::q_subcode::Control};
+use bcd::Bcd;
+use deku::{deku_derive, reader::Reader, DekuError, DekuRead, DekuReader};
+use rainbow_books::q_subcode::Control;
 
 use crate::scsi::mmc::commands::Response;
 
@@ -50,6 +49,13 @@ pub struct TempTocTrackDescriptor {
     pmin: u8,
     psec: u8,
     pframe: u8,
+}
+
+pub struct RawTocTrackDescriptor {
+    session_numer: u8,
+    adr: u8,
+    control: Control,
+    data_q: [u8; 9],
 }
 
 // fn parse_raw_toc_proto<R: deku::no_std_io::Read + deku::no_std_io::Seek>(

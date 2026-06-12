@@ -8,7 +8,7 @@ mod private {
     pub trait Sealed {}
 }
 
-pub type Cdb<const N: usize> = [u8; N];
+pub(super) type Cdb<const N: usize> = [u8; N];
 pub struct OpCode<const N: u8>;
 
 pub trait OpCodeDef: private::Sealed {

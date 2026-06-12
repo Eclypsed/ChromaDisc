@@ -19,3 +19,4 @@ seq-macro = "0.3.6"
 thiserror = "2.0.17"
 generic-array = "1.4.1"
 arbitrary-int = "2.1.1"
+bcd = { version = "0.1.0", path = "../bcd", features = ["deku"] }

@@ -9,9 +9,8 @@ use const_format::concatcp;
 use nix::fcntl::{open, OFlag};
 use seq_macro::seq;
 
-use crate::scsi::mmc::commands::{Command, OpCode, OpCodeDef, Response};
+use crate::scsi::mmc::commands::{Command, OpCodeDef, Response};
 // use crate::scsi::mmc::commands::{execute, inquiry::Inquiry};
-use crate::scsi::mmc::types::spc;
 use crate::transport::sgio::{run_sgio, DxferDirection};
 
 macro_rules! device_files {
