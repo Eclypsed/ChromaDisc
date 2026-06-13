@@ -2,8 +2,8 @@ use std::io::Cursor;
 
 use deku::{deku_derive, reader::Reader, DekuError, DekuRead, DekuReader};
 
+use crate::rainbow_books::q_subcode;
 use crate::scsi::mmc::commands::Response;
-use rainbow_books::q_subcode;
 
 pub use super::formatted_toc::TrackStartAddress;
 

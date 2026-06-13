@@ -279,7 +279,7 @@ Encoding of a CD-R disc (Disc ID: 201514) with 5 audio tracks in the Program Are
 
 The first 52 bits of DATA-Q are organized as 13 nibbles (N1–N13), each a single BCD digit forming the Media Catalog Number (MCN). The MCN does not change on a disc. If no UPC/EAN catalog number is encoded, N1–N13 are all zero (or Mode-2 may be absent). `ZERO` is 12 bits of zero. `AFRAME` encodes two BCD digits (00–74); during Lead-in (`TNO = 00`), these 8 bits are zero.
 
-#### ADR = 5 — Skip Intervals and Multisession Pointers (Orange Book Only)
+#### ADR = 5 — Skip Intervals and Multisession Pointers (Orange Book & Blue Book)
 
 - `POINT = 01..40` — Skip Interval Pointers: indicate time intervals in the Program Area to skip during playback. Intervals must be recorded chronologically. The count N is given in `PMIN` of `POINT = B1`; if N = 0, these pointers are absent.
   - `PMIN`, `PSEC`, `PFRAME`: start time of the skip interval.

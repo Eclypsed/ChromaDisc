@@ -1,15 +1,53 @@
 use std::io::{Cursor, Seek, SeekFrom};
 
-use deku::{deku_derive, reader::Reader, DekuError, DekuReader};
-use rainbow_books::{
-    msf::Msf,
-    orange_book::atip::{
-        cdr, cdrw, DiscApplicationCode, DiscSpeed, SpecialInformation1, SpecialInformation2,
-        SpecialInformation3,
-    },
+use crate::core::msf::Msf;
+use crate::rainbow_books::atip::{
+    cdr, cdrw, CdrSubtype, CdrwSubtype, DiscApplicationCode, DiscSpeed, DiscType,
 };
+use deku::{ctx::Order, deku_derive, reader::Reader, DekuError, DekuReader};
 
 use crate::scsi::mmc::commands::Response;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum SpecialInformation1 {
+    Cdr(cdr::SpecialInformation1),
+    CdrwStandard(cdrw::standard::SpecialInformation1),
+    CdrwHighSpeed(cdrw::high_speed::SpecialInformation1),
+    CdrwUltraSpeed(cdrw::ultra_speed::SpecialInformation1),
+    CdrwUltraSpeedPlus(cdrw::ultra_speed_plus::SpecialInformation1),
+}
+
+impl<'a> DekuReader<'a> for SpecialInformation1 {
+    fn from_reader_with_ctx<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
+        reader: &mut Reader<R>,
+        _: (),
+    ) -> Result<Self, DekuError> {
+        reader.seek(SeekFrom::Current(2))?;
+        reader.skip_bits(1, Order::Msb0)?;
+        let disc_type = DiscType::from_reader_with_ctx(reader, ())?;
+        reader.skip_bits(3, Order::Msb0)?;
+        reader.seek(SeekFrom::Current(-3))?;
+
+        Ok(match disc_type {
+            DiscType::Cdr(_) => {
+                Self::Cdr(cdr::SpecialInformation1::from_reader_with_ctx(reader, ())?)
+            }
+            DiscType::Cdrw(CdrwSubtype::Standard) => Self::CdrwStandard(
+                cdrw::standard::SpecialInformation1::from_reader_with_ctx(reader, ())?,
+            ),
+            DiscType::Cdrw(CdrwSubtype::HighSpeed) => Self::CdrwHighSpeed(
+                cdrw::high_speed::SpecialInformation1::from_reader_with_ctx(reader, ())?,
+            ),
+            DiscType::Cdrw(CdrwSubtype::UltraSpeed) => Self::CdrwUltraSpeed(
+                cdrw::ultra_speed::SpecialInformation1::from_reader_with_ctx(reader, ())?,
+            ),
+            DiscType::Cdrw(CdrwSubtype::UltraSpeedPlus) => Self::CdrwUltraSpeedPlus(
+                cdrw::ultra_speed_plus::SpecialInformation1::from_reader_with_ctx(reader, ())?,
+            ),
+            _ => return Err(DekuError::IdVariantNotFound),
+        })
+    }
+}
 
 #[deku_derive(DekuRead)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -17,6 +55,8 @@ pub struct Atip {
     #[deku(bytes = "2", temp, endian = "big", pad_bytes_after = "2")]
     _atip_data_length: usize,
 
+    // #[deku(read_all)]
+    // pub atip_descriptor: Vec<u8>,
     pub atip_descriptor: AtipDescriptor,
 }
 
@@ -34,6 +74,7 @@ pub enum AtipDescriptor {
         write_power_ref_speed: cdr::WritePowerRefSpeed,
         reference_speed: DiscSpeed,
         disc_application_code: DiscApplicationCode,
+        medium_type: CdrSubtype,
 
         lead_in_start_time: Msf,
         lead_out_start_time: Msf,
@@ -79,6 +120,7 @@ pub enum AtipDescriptor {
     },
     CdrwUltraSpeedPlus {
         disc_application_code: DiscApplicationCode,
+
         lead_in_start_time: Msf,
         lead_out_start_time: Msf,
 
@@ -121,8 +163,10 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
         }
 
         let si1: SpecialInformation1 = read_info(reader)?;
-        let si2: SpecialInformation2 = read_info(reader)?;
-        let si3: SpecialInformation3 = read_info(reader)?;
+        let lead_in_start_time = Msf::from_reader_with_ctx(reader, ())?;
+        reader.seek(SeekFrom::Current(1))?;
+        let lead_out_start_time = Msf::from_reader_with_ctx(reader, ())?;
+        reader.seek(SeekFrom::Current(1))?;
 
         match si1 {
             SpecialInformation1::Cdr(si1) => {
@@ -134,8 +178,9 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
                     write_power_ref_speed: si1.target_writing_power,
                     reference_speed: si1.reference_speed,
                     disc_application_code: si1.disc_application_code,
-                    lead_in_start_time: si2.lead_in_start_time,
-                    lead_out_start_time: si3.lead_out_start_time,
+                    medium_type: si1.medium_type,
+                    lead_in_start_time,
+                    lead_out_start_time,
                     additional_information_1: ai1,
                     additional_information_2: ai2,
                     additional_information_3: ai3,
@@ -152,8 +197,8 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
                     write_power_ref_speed: si1.target_writing_power,
                     reference_speed: si1.reference_speed,
                     disc_application_code: si1.disc_application_code,
-                    lead_in_start_time: si2.lead_in_start_time,
-                    lead_out_start_time: si3.lead_out_start_time,
+                    lead_in_start_time,
+                    lead_out_start_time,
                     additional_information_1: ai1,
                     additional_information_2: ai2,
                 })
@@ -170,8 +215,8 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
                     write_power_ref_speed: si1.target_writing_power,
                     reference_speed: si1.reference_speed,
                     disc_application_code: si1.disc_application_code,
-                    lead_in_start_time: si2.lead_in_start_time,
-                    lead_out_start_time: si3.lead_out_start_time,
+                    lead_in_start_time,
+                    lead_out_start_time,
                     additional_information_1: ai1,
                     additional_information_2: ai2,
                     additional_information_3: ai3,
@@ -189,8 +234,8 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
                     write_power_ref_speed: si1.target_writing_power,
                     reference_speed: si1.reference_speed,
                     disc_application_code: si1.disc_application_code,
-                    lead_in_start_time: si2.lead_in_start_time,
-                    lead_out_start_time: si3.lead_out_start_time,
+                    lead_in_start_time,
+                    lead_out_start_time,
                     additional_information_1: ai1,
                     additional_information_2: ai2,
                     additional_information_3: ai3,
@@ -205,8 +250,8 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
 
                 Ok(AtipDescriptor::CdrwUltraSpeedPlus {
                     disc_application_code: si1.disc_application_code,
-                    lead_in_start_time: si2.lead_in_start_time,
-                    lead_out_start_time: si3.lead_out_start_time,
+                    lead_in_start_time,
+                    lead_out_start_time,
                     additional_information_2: ai2,
                     additional_information_3: ai3,
                 })

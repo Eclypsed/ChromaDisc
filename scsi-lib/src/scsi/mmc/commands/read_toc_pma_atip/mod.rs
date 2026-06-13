@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::core::addressing::Lba;
-use rainbow_books::msf::Msf;
+use crate::core::{addressing::Lba, msf::Msf};
 
 use super::{Command, Control, OpCode, OpCodeDef, Response};
 

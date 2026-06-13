@@ -1,17 +1,9 @@
 use std::io::Cursor;
 
-use bcd::Bcd;
+use crate::rainbow_books::q_subcode::Control;
 use deku::{deku_derive, reader::Reader, DekuError, DekuRead, DekuReader};
-use rainbow_books::q_subcode::Control;
 
 use crate::scsi::mmc::commands::Response;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ProgramAreaFormat {
-    CddaOrCdrom = 0x00,
-    Cdi = 0x10,
-    CdromXa = 0x20,
-}
 
 #[deku_derive(DekuRead)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -50,51 +42,3 @@ pub struct TempTocTrackDescriptor {
     psec: u8,
     pframe: u8,
 }
-
-pub struct RawTocTrackDescriptor {
-    session_numer: u8,
-    adr: u8,
-    control: Control,
-    data_q: [u8; 9],
-}
-
-// fn parse_raw_toc_proto<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-//     reader: &mut Reader<R>,
-// ) -> Result<TocTrackDescriptor, DekuError> {
-//     const CTRL4: q_subcode::Control = q_subcode::Control::from_bits_truncate(4);
-//     const CTRL6: q_subcode::Control = q_subcode::Control::from_bits_truncate(6);
-
-//     let session_num = u8::from_reader_with_ctx(reader, ())?;
-//     let adr = u8::from_reader_with_ctx(reader, BitSize(4))?;
-//     let control = q_subcode::Control::from_reader_with_ctx(reader, ())?;
-//     let tno = u8::from_reader_with_ctx(reader, ())?;
-//     let point = u8::from_reader_with_ctx(reader, ())?;
-//     let min = u8::from_reader_with_ctx(reader, ())?;
-//     let sec = u8::from_reader_with_ctx(reader, ())?;
-//     let frame = u8::from_reader_with_ctx(reader, ())?;
-//     let zero = u8::from_reader_with_ctx(reader, ())?;
-//     let pmin = u8::from_reader_with_ctx(reader, ())?;
-//     let psec = u8::from_reader_with_ctx(reader, ())?;
-//     let pframe = u8::from_reader_with_ctx(reader, ())?;
-
-//     match (control, adr, tno, point) {
-//         (CTRL4 | CTRL6, 0b0001, 0x00, 0x01..=0x63) => todo!(),
-//         (CTRL4 | CTRL6, 0b0001, 0x00, 0xA0) => todo!(),
-//         (CTRL4 | CTRL6, 0b0001, 0x00, 0xA1) => todo!(),
-//         (CTRL4 | CTRL6, 0b0001, 0x00, 0xA2) => todo!(),
-//         (CTRL4 | CTRL6, 0b0101, 0x00, 0x01..=0x40) => todo!(),
-//         (CTRL4 | CTRL6, 0b0101, 0x00, 0xB0) => todo!(),
-//         (CTRL4 | CTRL6, 0b0101, 0x00, 0xB1) => todo!(),
-//         (CTRL4 | CTRL6, 0b0101, 0x00, 0xB2..=0xB4) => todo!(),
-//         (CTRL4 | CTRL6, 0b0101, 0x00, 0xC0) => todo!(),
-//         (CTRL4 | CTRL6, 0b0101, 0x00, 0xC1) => todo!(),
-//         _ => Err(deku_error!(
-//             DekuError::Parse,
-//             "Unknown descriptor type",
-//             "CTRL={}, ADR={}, POINT={:X}h",
-//             control,
-//             adr,
-//             point
-//         )),
-//     }
-// }

@@ -1,41 +1,17 @@
-use std::{
-    error::Error,
-    io::{Seek, SeekFrom},
-};
+use deku::DekuRead;
 
-use bcd::Bcd;
-use deku::{
-    ctx::{BitSize, Order},
-    deku_derive,
-    reader::Reader,
-    DekuError, DekuRead, DekuReader,
-};
-
-use crate::msf::{Frame, Minute, Msf, Second};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DiscType {
-    Cdr,
-    Cdrw(CdrwSubtype),
-}
-
-impl<'a> DekuReader<'a> for DiscType {
-    fn from_reader_with_ctx<R: std::io::Read + std::io::Seek>(
-        reader: &mut Reader<R>,
-        _ctx: (),
-    ) -> Result<Self, DekuError>
-    where
-        Self: Sized,
-    {
-        let id = u8::from_reader_with_ctx(reader, BitSize(1))?;
-        if id == 0 {
-            reader.skip_bits(3, Order::Msb0)?;
-            Ok(Self::Cdr)
-        } else {
-            let subtype = CdrwSubtype::from_reader_with_ctx(reader, ())?;
-            Ok(Self::Cdrw(subtype))
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
+#[deku(id_type = "u8", bits = 3)]
+#[repr(u8)]
+pub enum CdrSubtype {
+    Normal = 0b000,
+    Reserved = 0b001,
+    TypeALowBeta = 0b010,
+    TypeAHighBeta = 0b011,
+    TypeBLowBeta = 0b100,
+    TypeBHighBeta = 0b101,
+    TypeCLowBeta = 0b110,
+    TypeCHighBeta = 0b111,
 }
 
 /// A 3-bit value representing the different CD-RW sub-types
@@ -51,6 +27,15 @@ pub enum CdrwSubtype {
     UltraSpeedPlus = 0b011,
     #[deku(id_pat = "_")]
     Reserved(u8),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
+#[deku(id_type = "u8", bits = 1)]
+pub enum DiscType {
+    #[deku(id = "0")]
+    Cdr(CdrSubtype),
+    #[deku(id = "1")]
+    Cdrw(CdrwSubtype),
 }
 
 /// A 7-bit value distiguishing between discs used for different applications
@@ -96,142 +81,12 @@ pub enum DiscSpeed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
 pub struct MediaIdentificationCode(#[deku(endian = "big")] pub u16);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SpecialInformation1 {
-    Cdr(cdr::SpecialInformation1),
-    CdrwStandard(cdrw::standard::SpecialInformation1),
-    CdrwHighSpeed(cdrw::high_speed::SpecialInformation1),
-    CdrwUltraSpeed(cdrw::ultra_speed::SpecialInformation1),
-    CdrwUltraSpeedPlus(cdrw::ultra_speed_plus::SpecialInformation1),
-}
-
-impl<'a> DekuReader<'a> for SpecialInformation1 {
-    fn from_reader_with_ctx<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-        reader: &mut Reader<R>,
-        _: (),
-    ) -> Result<Self, DekuError> {
-        reader.seek(SeekFrom::Current(2))?;
-        reader.skip_bits(1, Order::Msb0)?;
-        let disc_type = DiscType::from_reader_with_ctx(reader, ())?;
-        reader.skip_bits(3, Order::Msb0)?;
-        reader.seek(SeekFrom::Current(-3))?;
-
-        Ok(match disc_type {
-            DiscType::Cdr => Self::Cdr(cdr::SpecialInformation1::from_reader_with_ctx(reader, ())?),
-            DiscType::Cdrw(CdrwSubtype::Standard) => Self::CdrwStandard(
-                cdrw::standard::SpecialInformation1::from_reader_with_ctx(reader, ())?,
-            ),
-            DiscType::Cdrw(CdrwSubtype::HighSpeed) => Self::CdrwHighSpeed(
-                cdrw::high_speed::SpecialInformation1::from_reader_with_ctx(reader, ())?,
-            ),
-            DiscType::Cdrw(CdrwSubtype::UltraSpeed) => Self::CdrwUltraSpeed(
-                cdrw::ultra_speed::SpecialInformation1::from_reader_with_ctx(reader, ())?,
-            ),
-            DiscType::Cdrw(CdrwSubtype::UltraSpeedPlus) => Self::CdrwUltraSpeedPlus(
-                cdrw::ultra_speed_plus::SpecialInformation1::from_reader_with_ctx(reader, ())?,
-            ),
-            _ => return Err(DekuError::IdVariantNotFound),
-        })
-    }
-}
-
-#[deku_derive(DekuRead)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SpecialInformation2 {
-    #[deku(bits = 1, temp, assert_eq = "1", pad_bits_after = "7")]
-    _m1: u8,
-
-    #[deku(bits = 1, temp, assert_eq = "1", pad_bits_after = "7")]
-    _s1: u8,
-
-    #[deku(bits = 1, temp, assert_eq = "0", pad_bits_after = "7")]
-    _f1: u8,
-
-    #[deku(
-        seek_from_current = "-3",
-        reader = "SpecialInformation2::read_lead_in_start_time(deku::reader)"
-    )]
-    pub lead_in_start_time: Msf,
-}
-
-impl SpecialInformation2 {
-    fn read_lead_in_start_time<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-        reader: &mut Reader<R>,
-    ) -> Result<Msf, DekuError> {
-        fn parse_err(e: impl Error) -> DekuError {
-            DekuError::Parse(e.to_string().into())
-        }
-
-        let mut bytes = <[u8; 3]>::from_reader_with_ctx(reader, ())?;
-        bytes[0] |= 0x80;
-        bytes[1] &= 0x7F;
-        bytes[2] &= 0x7f;
-
-        for byte in bytes.iter_mut() {
-            *byte = Bcd::<1>::from_bcd_bytes([*byte])
-                .map(|bcd| bcd.into_u8())
-                .map_err(parse_err)?;
-        }
-
-        Ok(Msf::new(
-            Minute::try_from(bytes[0]).map_err(parse_err)?,
-            Second::try_from(bytes[1]).map_err(parse_err)?,
-            Frame::try_from(bytes[2]).map_err(parse_err)?,
-        ))
-    }
-}
-
-#[deku_derive(DekuRead)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SpecialInformation3 {
-    #[deku(bits = 1, temp, assert_eq = "1", pad_bits_after = "7")]
-    _m1: u8,
-
-    #[deku(bits = 1, temp, assert_eq = "1", pad_bits_after = "7")]
-    _s1: u8,
-
-    #[deku(bits = 1, temp, assert_eq = "0", pad_bits_after = "7")]
-    _f1: u8,
-
-    #[deku(
-        seek_from_current = "-3",
-        reader = "SpecialInformation3::read_lead_out_start_time(deku::reader)"
-    )]
-    pub lead_out_start_time: Msf,
-}
-
-impl SpecialInformation3 {
-    fn read_lead_out_start_time<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-        reader: &mut Reader<R>,
-    ) -> Result<Msf, DekuError> {
-        fn parse_err(e: impl Error) -> DekuError {
-            DekuError::Parse(e.to_string().into())
-        }
-
-        let mut bytes = <[u8; 3]>::from_reader_with_ctx(reader, ())?.map(|b| b & 0x7f);
-
-        for byte in bytes.iter_mut() {
-            *byte = Bcd::<1>::from_bcd_bytes([*byte])
-                .map(|bcd| bcd.into_u8())
-                .map_err(parse_err)?;
-        }
-
-        Ok(Msf::new(
-            Minute::try_from(bytes[0]).map_err(parse_err)?,
-            Second::try_from(bytes[1]).map_err(parse_err)?,
-            Frame::try_from(bytes[2]).map_err(parse_err)?,
-        ))
-    }
-}
-
 pub mod cdr {
     use std::ops::Range;
 
     use deku::{deku_derive, DekuRead};
 
-    use crate::orange_book::atip::{
-        DiscApplicationCode, DiscSpeed, DiscType, MediaIdentificationCode,
-    };
+    use super::{CdrSubtype, DiscApplicationCode, DiscSpeed, MediaIdentificationCode};
 
     /// A 3-bit value representing the optimum recording power in mW for CD-R and CD-RW discs.
     ///
@@ -518,8 +373,10 @@ pub mod cdr {
 
         #[deku(bits = 1, temp, assert_eq = "1")]
         _f1: u8,
-        #[deku(temp, assert_eq = "DiscType::Cdr")]
-        _disc_type: DiscType,
+        #[deku(bits = 1, temp, assert_eq = "0")]
+        _disc_type: u8,
+        pub medium_type: CdrSubtype,
+
         #[deku(bits = 1)]
         pub a1_valid: bool,
         #[deku(bits = 1)]
@@ -677,7 +534,7 @@ pub mod cdrw {
     pub mod standard {
         use deku::{deku_derive, DekuRead};
 
-        use crate::orange_book::atip::{CdrwSubtype, DiscApplicationCode, DiscSpeed, DiscType};
+        use super::super::{CdrwSubtype, DiscApplicationCode, DiscSpeed, DiscType};
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
         #[deku(id_type = "u8", bits = 3)]
@@ -871,7 +728,7 @@ pub mod cdrw {
 
             use deku::{reader::Reader, DekuReader};
 
-            use crate::orange_book::atip::{
+            use super::super::super::{
                 cdrw::standard::{
                     AdditionalInformation1, EraseWriteRatio, PowerMultFactor, TargetModulationValue,
                 },
@@ -902,7 +759,7 @@ pub mod cdrw {
     pub mod high_speed {
         use deku::{deku_derive, DekuRead};
 
-        use crate::orange_book::atip::{
+        use super::super::{
             cdrw::{standard::TargetModulationValue, MediaTechnologyType},
             CdrwSubtype, DiscApplicationCode, DiscSpeed, DiscType, MediaIdentificationCode,
         };
@@ -1141,7 +998,7 @@ pub mod cdrw {
     pub mod ultra_speed {
         use deku::{deku_derive, DekuRead};
 
-        use crate::orange_book::atip::{
+        use super::super::{
             cdrw::{high_speed::PowerMultFactor, standard::TargetModulationValue},
             CdrwSubtype, DiscApplicationCode, DiscSpeed, DiscType,
         };
@@ -1384,8 +1241,7 @@ pub mod cdrw {
     pub mod ultra_speed_plus {
         use deku::deku_derive;
 
-        use crate::orange_book::atip::DiscApplicationCode;
-        use crate::orange_book::atip::{CdrwSubtype, DiscType};
+        use super::super::{CdrwSubtype, DiscApplicationCode, DiscType};
 
         #[deku_derive(DekuRead)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

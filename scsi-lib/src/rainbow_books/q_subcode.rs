@@ -81,7 +81,7 @@ use bcd::{bcd, Bcd};
 use deku::{ctx::BitSize, reader::Reader, DekuError, DekuReader};
 use thiserror::Error;
 
-use crate::msf::Msf;
+use crate::core::msf::Msf;
 
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TrackNumber(Bcd<1>);
@@ -129,6 +129,11 @@ pub enum ProgramAreaFormat {
     CddaOrCdrom = 0x00,
     Cdi = 0x10,
     CdromXa = 0x20,
+}
+
+pub enum TrackStopTime {
+    Complete(Msf),
+    Incomplete,
 }
 
 mod private {

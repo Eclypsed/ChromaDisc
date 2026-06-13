@@ -1,11 +1,11 @@
 use std::io::{Cursor, Seek, SeekFrom};
 
+use crate::core::msf::Msf;
 use deku::{ctx::Endian, deku_derive, reader::Reader, DekuError, DekuRead, DekuReader};
-use rainbow_books::msf::Msf;
 
 use super::AddressingMode;
+use crate::rainbow_books::q_subcode;
 use crate::{core::addressing::Lba, scsi::mmc::commands::Response};
-use rainbow_books::q_subcode;
 
 mod sealed {
     pub trait Sealed {}
