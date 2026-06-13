@@ -1,17 +1,15 @@
 use std::io;
 
-use scsi_lib::{
+use cdio::{
     core::constants::CHROMADISC_VERSION,
     device::{scan_sysfs, Drive},
-    scsi::mmc::commands::read_toc_pma_atip::{atip::Atip, raw_toc::RawToc, ReadTocPmaAtip},
+    scsi::mmc::commands::read_toc_pma_atip::{atip::Atip, ReadTocPmaAtip},
     // scsi::mmc::commands::{
     //     execute,
     //     get_configuration::{GetConfiguration, RTField},
     //     read_track_info::ReadTrackInfoResponse,
     // },
 };
-
-mod cdio;
 
 // #[allow(dead_code)]
 // fn print_toc(tracks: &[ReadTrackInfoResponse]) {
@@ -65,7 +63,7 @@ fn main() -> io::Result<()> {
 
     let result = drive.execute(cmd).unwrap();
 
-    println!("Raw TOC:");
+    println!("ATIP:");
     println!("{result:#?}");
 
     // let timestamp = Local::now();
