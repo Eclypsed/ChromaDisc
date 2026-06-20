@@ -2,6 +2,7 @@ use std::error::Error;
 
 use derive_more::{From, Into};
 
+pub mod get_configuration;
 pub mod read_toc_pma_atip;
 
 mod private {

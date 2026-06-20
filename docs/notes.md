@@ -4,3 +4,4 @@ This is mainly just a collection my persnoal notes as well as some useful resour
 
 - [CD Ripping Terminology](https://docs.linn.co.uk/wiki/index.php/CD_Ripping_Terminology). Information about the different kinds of jitter (EFM, Sampling, and Read Offset) and error correction.
 - [CD-R FAQ](https://www.cdrfaq.org/faq02.html). General information regarding CD-R
+- [SCSI Standards](https://www.13thmonkey.org/documentation/SCSI/). Archive of various scsi standards.

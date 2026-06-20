@@ -1,5 +1,8 @@
 use deku::DekuRead;
 
+/// A 3-bit value representing the different CD-R sub-types
+///
+/// See CD-R System Description (Orange Book Part II Volume 1) §IV.4.1.5.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
 #[deku(id_type = "u8", bits = 3)]
 #[repr(u8)]
@@ -376,7 +379,6 @@ pub mod cdr {
         #[deku(bits = 1, temp, assert_eq = "0")]
         _disc_type: u8,
         pub medium_type: CdrSubtype,
-
         #[deku(bits = 1)]
         pub a1_valid: bool,
         #[deku(bits = 1)]

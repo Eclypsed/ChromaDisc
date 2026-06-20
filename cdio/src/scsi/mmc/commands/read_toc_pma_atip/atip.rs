@@ -8,47 +8,6 @@ use deku::{ctx::Order, deku_derive, reader::Reader, DekuError, DekuReader};
 
 use crate::scsi::mmc::commands::Response;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum SpecialInformation1 {
-    Cdr(cdr::SpecialInformation1),
-    CdrwStandard(cdrw::standard::SpecialInformation1),
-    CdrwHighSpeed(cdrw::high_speed::SpecialInformation1),
-    CdrwUltraSpeed(cdrw::ultra_speed::SpecialInformation1),
-    CdrwUltraSpeedPlus(cdrw::ultra_speed_plus::SpecialInformation1),
-}
-
-impl<'a> DekuReader<'a> for SpecialInformation1 {
-    fn from_reader_with_ctx<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-        reader: &mut Reader<R>,
-        _: (),
-    ) -> Result<Self, DekuError> {
-        reader.seek(SeekFrom::Current(2))?;
-        reader.skip_bits(1, Order::Msb0)?;
-        let disc_type = DiscType::from_reader_with_ctx(reader, ())?;
-        reader.skip_bits(3, Order::Msb0)?;
-        reader.seek(SeekFrom::Current(-3))?;
-
-        Ok(match disc_type {
-            DiscType::Cdr(_) => {
-                Self::Cdr(cdr::SpecialInformation1::from_reader_with_ctx(reader, ())?)
-            }
-            DiscType::Cdrw(CdrwSubtype::Standard) => Self::CdrwStandard(
-                cdrw::standard::SpecialInformation1::from_reader_with_ctx(reader, ())?,
-            ),
-            DiscType::Cdrw(CdrwSubtype::HighSpeed) => Self::CdrwHighSpeed(
-                cdrw::high_speed::SpecialInformation1::from_reader_with_ctx(reader, ())?,
-            ),
-            DiscType::Cdrw(CdrwSubtype::UltraSpeed) => Self::CdrwUltraSpeed(
-                cdrw::ultra_speed::SpecialInformation1::from_reader_with_ctx(reader, ())?,
-            ),
-            DiscType::Cdrw(CdrwSubtype::UltraSpeedPlus) => Self::CdrwUltraSpeedPlus(
-                cdrw::ultra_speed_plus::SpecialInformation1::from_reader_with_ctx(reader, ())?,
-            ),
-            _ => return Err(DekuError::IdVariantNotFound),
-        })
-    }
-}
-
 #[deku_derive(DekuRead)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Atip {
@@ -162,23 +121,30 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
             }
         }
 
-        let si1: SpecialInformation1 = read_info(reader)?;
-        let lead_in_start_time = Msf::from_reader_with_ctx(reader, ())?;
-        reader.seek(SeekFrom::Current(1))?;
-        let lead_out_start_time = Msf::from_reader_with_ctx(reader, ())?;
-        reader.seek(SeekFrom::Current(1))?;
+        reader.seek(SeekFrom::Current(2))?;
+        reader.skip_bits(1, Order::Msb0)?;
+        let disc_type = DiscType::from_reader_with_ctx(reader, ())?;
+        reader.skip_bits(3, Order::Msb0)?;
+        reader.seek(SeekFrom::Current(-3))?;
 
-        match si1 {
-            SpecialInformation1::Cdr(si1) => {
+        match disc_type {
+            DiscType::Cdr(medium_type) => {
+                let si1: cdr::SpecialInformation1 = read_info(reader)?;
+                let lead_in_start_time = Msf::from_reader_with_ctx(reader, ())?;
+                reader.seek(SeekFrom::Current(1))?;
+                let lead_out_start_time = Msf::from_reader_with_ctx(reader, ())?;
+                reader.seek(SeekFrom::Current(1))?;
                 let ai1: Option<cdr::AdditionalInformation1> = read_optional(reader, si1.a1_valid)?;
                 let ai2: Option<cdr::AdditionalInformation2> = read_optional(reader, si1.a2_valid)?;
                 let ai3: Option<cdr::AdditionalInformation3> = read_optional(reader, si1.a3_valid)?;
+
+                debug_assert!(medium_type == si1.medium_type);
 
                 Ok(AtipDescriptor::Cdr {
                     write_power_ref_speed: si1.target_writing_power,
                     reference_speed: si1.reference_speed,
                     disc_application_code: si1.disc_application_code,
-                    medium_type: si1.medium_type,
+                    medium_type,
                     lead_in_start_time,
                     lead_out_start_time,
                     additional_information_1: ai1,
@@ -186,12 +152,22 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
                     additional_information_3: ai3,
                 })
             }
-            SpecialInformation1::CdrwStandard(si1) => {
+            DiscType::Cdrw(CdrwSubtype::Standard) => {
+                let si1: cdrw::standard::SpecialInformation1 = read_info(reader)?;
+                let lead_in_start_time = Msf::from_reader_with_ctx(reader, ())?;
+                reader.seek(SeekFrom::Current(1))?;
+                let lead_out_start_time = Msf::from_reader_with_ctx(reader, ())?;
+                reader.seek(SeekFrom::Current(1))?;
                 let ai1: Option<cdrw::standard::AdditionalInformation1> =
                     read_optional(reader, si1.a1_valid)?;
                 let ai2: Option<cdrw::standard::AdditionalInformation2> =
                     read_optional(reader, si1.a2_valid)?;
                 reader.seek(SeekFrom::Current(4))?;
+
+                debug_assert!(matches!(
+                    si1.disc_type,
+                    DiscType::Cdrw(CdrwSubtype::Standard)
+                ));
 
                 Ok(AtipDescriptor::CdrwStandard {
                     write_power_ref_speed: si1.target_writing_power,
@@ -203,13 +179,23 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
                     additional_information_2: ai2,
                 })
             }
-            SpecialInformation1::CdrwHighSpeed(si1) => {
+            DiscType::Cdrw(CdrwSubtype::HighSpeed) => {
+                let si1: cdrw::high_speed::SpecialInformation1 = read_info(reader)?;
+                let lead_in_start_time = Msf::from_reader_with_ctx(reader, ())?;
+                reader.seek(SeekFrom::Current(1))?;
+                let lead_out_start_time = Msf::from_reader_with_ctx(reader, ())?;
+                reader.seek(SeekFrom::Current(1))?;
                 let ai1: Option<cdrw::high_speed::AdditionalInformation1> =
                     read_optional(reader, si1.a1_valid)?;
                 let ai2: Option<cdrw::high_speed::AdditionalInformation2> =
                     read_optional(reader, si1.a2_valid)?;
                 let ai3: Option<cdrw::high_speed::AdditionalInformation3> =
                     read_optional(reader, si1.a3_valid)?;
+
+                debug_assert!(matches!(
+                    si1.disc_type,
+                    DiscType::Cdrw(CdrwSubtype::HighSpeed)
+                ));
 
                 Ok(AtipDescriptor::CdrwHighSpeed {
                     write_power_ref_speed: si1.target_writing_power,
@@ -222,13 +208,23 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
                     additional_information_3: ai3,
                 })
             }
-            SpecialInformation1::CdrwUltraSpeed(si1) => {
+            DiscType::Cdrw(CdrwSubtype::UltraSpeed) => {
+                let si1: cdrw::ultra_speed::SpecialInformation1 = read_info(reader)?;
+                let lead_in_start_time = Msf::from_reader_with_ctx(reader, ())?;
+                reader.seek(SeekFrom::Current(1))?;
+                let lead_out_start_time = Msf::from_reader_with_ctx(reader, ())?;
+                reader.seek(SeekFrom::Current(1))?;
                 let ai1: Option<cdrw::ultra_speed::AdditionalInformation1> =
                     read_optional(reader, si1.a1_valid)?;
                 let ai2: Option<cdrw::ultra_speed::AdditionalInformation2> =
                     read_optional(reader, si1.a2_valid)?;
                 let ai3: Option<cdrw::ultra_speed::AdditionalInformation3> =
                     read_optional(reader, si1.a3_valid)?;
+
+                debug_assert!(matches!(
+                    si1.disc_type,
+                    DiscType::Cdrw(CdrwSubtype::UltraSpeed)
+                ));
 
                 Ok(AtipDescriptor::CdrwUltraSpeed {
                     write_power_ref_speed: si1.target_writing_power,
@@ -241,12 +237,22 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
                     additional_information_3: ai3,
                 })
             }
-            SpecialInformation1::CdrwUltraSpeedPlus(si1) => {
+            DiscType::Cdrw(CdrwSubtype::UltraSpeedPlus) => {
+                let si1: cdrw::ultra_speed_plus::SpecialInformation1 = read_info(reader)?;
+                let lead_in_start_time = Msf::from_reader_with_ctx(reader, ())?;
+                reader.seek(SeekFrom::Current(1))?;
+                let lead_out_start_time = Msf::from_reader_with_ctx(reader, ())?;
+                reader.seek(SeekFrom::Current(1))?;
                 reader.seek(SeekFrom::Current(4))?;
                 let ai2: Option<cdrw::ultra_speed_plus::AdditionalInformation2> =
                     read_optional(reader, si1.a2_valid)?;
                 let ai3: Option<cdrw::ultra_speed_plus::AdditionalInformation3> =
                     read_optional(reader, si1.a3_valid)?;
+
+                debug_assert!(matches!(
+                    si1.disc_type,
+                    DiscType::Cdrw(CdrwSubtype::UltraSpeedPlus)
+                ));
 
                 Ok(AtipDescriptor::CdrwUltraSpeedPlus {
                     disc_application_code: si1.disc_application_code,
@@ -256,6 +262,7 @@ impl<'a> DekuReader<'a> for AtipDescriptor {
                     additional_information_3: ai3,
                 })
             }
+            DiscType::Cdrw(CdrwSubtype::Reserved(_)) => Err(DekuError::IdVariantNotFound),
         }
     }
 }

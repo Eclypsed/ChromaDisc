@@ -1,9 +1,12 @@
 use std::io;
 
 use cdio::{
-    core::constants::CHROMADISC_VERSION,
+    core::{addressing::Lba, constants::CHROMADISC_VERSION, msf::Msf},
     device::{scan_sysfs, Drive},
-    scsi::mmc::commands::read_toc_pma_atip::{atip::Atip, ReadTocPmaAtip},
+    scsi::mmc::commands::read_toc_pma_atip::{
+        atip::Atip, cd_text::CdText, formatted_toc::FormattedToc, pma::Pma, raw_toc::RawToc,
+        ReadTocPmaAtip,
+    },
     // scsi::mmc::commands::{
     //     execute,
     //     get_configuration::{GetConfiguration, RTField},
@@ -59,11 +62,11 @@ fn main() -> io::Result<()> {
 
     let drive = Drive::new(devices[0].clone());
 
-    let cmd = ReadTocPmaAtip::<Atip>::new(0, 4096, 0.into());
+    let cmd = ReadTocPmaAtip::<RawToc>::new(0, 4096, 0.into());
 
     let result = drive.execute(cmd).unwrap();
 
-    println!("ATIP:");
+    println!("Raw TOC:");
     println!("{result:#?}");
 
     // let timestamp = Local::now();

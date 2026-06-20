@@ -97,11 +97,69 @@ impl private::ReadTocPmaAtipFormat for cd_text::CdText {
 }
 impl ReadTocPmaAtipResponse for cd_text::CdText {}
 
-impl<R: ReadTocPmaAtipResponse> ReadTocPmaAtip<R> {
-    pub fn new(track_session_number: u8, allocation_length: u16, control: Control) -> Self {
+// Distinct impls for each to enable specificity like in the constructors for example
+impl<A: formatted_toc::TrackStartAddress> ReadTocPmaAtip<formatted_toc::FormattedToc<A>> {
+    pub fn new(track_number: u8, allocation_length: u16, control: Control) -> Self {
         Self {
             _response_marker: PhantomData,
-            track_session_number,
+            track_session_number: track_number,
+            allocation_length,
+            control,
+        }
+    }
+}
+
+impl<A: multi_session_info::TrackStartAddress>
+    ReadTocPmaAtip<multi_session_info::MultiSessionInformation<A>>
+{
+    pub fn new(allocation_length: u16, control: Control) -> Self {
+        Self {
+            _response_marker: PhantomData,
+            track_session_number: 0,
+            allocation_length,
+            control,
+        }
+    }
+}
+
+impl ReadTocPmaAtip<raw_toc::RawToc> {
+    pub fn new(session_number: u8, allocation_length: u16, control: Control) -> Self {
+        Self {
+            _response_marker: PhantomData,
+            track_session_number: session_number,
+            allocation_length,
+            control,
+        }
+    }
+}
+
+impl ReadTocPmaAtip<pma::Pma> {
+    pub fn new(allocation_length: u16, control: Control) -> Self {
+        Self {
+            _response_marker: PhantomData,
+            track_session_number: 0,
+            allocation_length,
+            control,
+        }
+    }
+}
+
+impl ReadTocPmaAtip<atip::Atip> {
+    pub fn new(allocation_length: u16, control: Control) -> Self {
+        Self {
+            _response_marker: PhantomData,
+            track_session_number: 0,
+            allocation_length,
+            control,
+        }
+    }
+}
+
+impl ReadTocPmaAtip<cd_text::CdText> {
+    pub fn new(allocation_length: u16, control: Control) -> Self {
+        Self {
+            _response_marker: PhantomData,
+            track_session_number: 0,
             allocation_length,
             control,
         }

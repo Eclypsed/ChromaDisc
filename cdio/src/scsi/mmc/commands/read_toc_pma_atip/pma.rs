@@ -1,8 +1,8 @@
 use std::io::Cursor;
 
-use deku::{deku_derive, reader::Reader, DekuError, DekuRead, DekuReader};
+use deku::{deku_derive, reader::Reader, DekuError, DekuReader};
 
-use crate::scsi::mmc::commands::Response;
+use crate::{rainbow_books::q_subcode::Control, scsi::mmc::commands::Response};
 
 #[deku_derive(DekuRead)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -22,7 +22,19 @@ impl Response for Pma {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
+#[deku_derive(DekuRead)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PmaDescriptor {
-    // TODO
+    #[deku(pad_bytes_before = "1", bits = 4)]
+    adr: u8,
+    control: Control,
+    tno: u8,
+    point: u8,
+    min: u8,
+    sec: u8,
+    frame: u8,
+    zero: u8,
+    pmin: u8,
+    psec: u8,
+    pframe: u8,
 }

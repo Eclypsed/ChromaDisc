@@ -15,7 +15,7 @@ pub struct RawToc {
     pub last_complete_session_number: u8,
 
     #[deku(count = "_toc_data_length.saturating_sub(2) / 11")]
-    pub toc_track_descriptors: Vec<TempTocTrackDescriptor>,
+    pub toc_track_descriptors: Vec<TocTrackDescriptor>,
 }
 
 impl Response for RawToc {
@@ -27,7 +27,7 @@ impl Response for RawToc {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-pub struct TempTocTrackDescriptor {
+pub struct TocTrackDescriptor {
     session_number: u8,
     #[deku(bits = 4)]
     adr: u8,
