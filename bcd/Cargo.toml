@@ -1,11 +1,19 @@
 [package]
-name = "bcd"
+name = "const-bcd"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-
-[dependencies]
-deku = { version = "0.20.3", optional = true }
+description = "Packed Binary-Coded Decimal (BCD) values with const-generic storage and no_std support"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/Eclypsed/ChromaDisc"
+documentation = "https://docs.rs/const-bcd"
+keywords = ["bcd", "binary-coded-decimal", "encoding", "no-std", "embedded"]
+categories = ["encoding", "no-std::no-alloc", "embedded"]
 
 [features]
-deku = ["dep:deku"]
+default = ["std"]
+std = []
+
+[dev-dependencies]
+test-format = "0.1.1"
