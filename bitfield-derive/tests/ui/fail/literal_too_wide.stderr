@@ -1,0 +1,5 @@
+error: `0b1000` does not fit in a 3-bit field (max value is `0b111`)
+  --> tests/ui/fail/literal_too_wide.rs:16:9
+   |
+16 |     H = 0b1000, // 4 bits, doesn't fit in 3
+   |         ^^^^^^

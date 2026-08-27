@@ -1,0 +1,5 @@
+error: variants `A` and `B` both claim pattern(s) 0b0; every pattern can be claimed by at most one variant
+ --> tests/ui/fail/overlap.rs:9:5
+  |
+9 |     A = 0b00,
+  |     ^

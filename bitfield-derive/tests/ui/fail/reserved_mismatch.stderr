@@ -1,0 +1,7 @@
+error: `reserved = ...` disagrees with computed coverage.
+         declared reserved: 0b110
+         computed uncovered: 0b110..=0b111
+ --> tests/ui/fail/reserved_mismatch.rs:7:22
+  |
+7 | #[bits(3, reserved = 0b110)]
+  |                      ^^^^^

@@ -1,18 +1,6 @@
 use std::io;
 
-use cdio::{
-    core::{addressing::Lba, constants::CHROMADISC_VERSION, msf::Msf},
-    device::{scan_sysfs, Drive},
-    scsi::mmc::commands::read_toc_pma_atip::{
-        atip::Atip, cd_text::CdText, formatted_toc::FormattedToc, pma::Pma, raw_toc::RawToc,
-        ReadTocPmaAtip,
-    },
-    // scsi::mmc::commands::{
-    //     execute,
-    //     get_configuration::{GetConfiguration, RTField},
-    //     read_track_info::ReadTrackInfoResponse,
-    // },
-};
+pub const CHROMADISC_VERSION: &str = "0.1.0";
 
 // #[allow(dead_code)]
 // fn print_toc(tracks: &[ReadTrackInfoResponse]) {
@@ -52,22 +40,22 @@ fn main() -> io::Result<()> {
     println!("ChromaDisc version {}", CHROMADISC_VERSION);
     println!();
 
-    let devices = scan_sysfs()?;
+    // let devices = scan_sysfs()?;
 
-    println!("Discovered Devices:");
-    for device in &devices {
-        println!("{device}")
-    }
-    println!();
+    // println!("Discovered Devices:");
+    // for device in &devices {
+    //     println!("{device}")
+    // }
+    // println!();
 
-    let drive = Drive::new(devices[0].clone());
+    // let drive = Drive::new(devices[0].clone());
 
-    let cmd = ReadTocPmaAtip::<RawToc>::new(0, 4096, 0.into());
+    // let cmd = ReadTocPmaAtip::<RawToc>::new(0, 4096, 0.into());
 
-    let result = drive.execute(cmd).unwrap();
+    // let result = drive.execute(cmd).unwrap();
 
-    println!("Raw TOC:");
-    println!("{result:#?}");
+    // println!("Raw TOC:");
+    // println!("{result:#?}");
 
     // let timestamp = Local::now();
     // println!("ChromaDisc extraction logfile from {timestamp}");

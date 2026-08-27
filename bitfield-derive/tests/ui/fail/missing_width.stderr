@@ -1,0 +1,5 @@
+error: missing field width; add `#[bits(<width>)]` to the enum
+ --> tests/ui/fail/missing_width.rs:7:6
+  |
+7 | enum NoWidth {
+  |      ^^^^^^^

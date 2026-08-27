@@ -1,0 +1,5 @@
+error: field width must be at most 128 bits
+ --> tests/ui/fail/width_too_large.rs:7:8
+  |
+7 | #[bits(129)]
+  |        ^^^

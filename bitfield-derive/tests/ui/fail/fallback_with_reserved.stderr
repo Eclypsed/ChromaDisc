@@ -1,0 +1,5 @@
+error: `#[bits(fallback)]` cannot be combined with an enum-level `reserved = ...`: the fallback absorbs the complement so asserting it is meaningless
+  --> tests/ui/fail/fallback_with_reserved.rs:12:12
+   |
+12 |     #[bits(fallback)]
+   |            ^^^^^^^^

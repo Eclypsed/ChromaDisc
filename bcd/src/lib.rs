@@ -999,10 +999,7 @@ mod tests {
         use std::collections::HashMap;
         let mut map = HashMap::new();
         map.insert(Bcd::<2>::try_from_u16(1234).unwrap(), "hi");
-        assert_eq!(
-            map.get(&Bcd::<2>::try_from_u16(1234).unwrap()),
-            Some(&"hi"),
-        );
+        assert_eq!(map.get(&Bcd::<2>::try_from_u16(1234).unwrap()), Some(&"hi"),);
     }
 
     // --- Error types ---

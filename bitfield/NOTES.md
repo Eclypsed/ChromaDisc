@@ -1,0 +1,1 @@
+- For exhaustive enums, provide a more convenient method to go from Bits<T> to T. Currently have to do T::from(bits.bits())

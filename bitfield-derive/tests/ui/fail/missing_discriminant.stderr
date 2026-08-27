@@ -1,0 +1,5 @@
+error: variant `B` needs a discriminant; add `= 0b…` or `= 0x…`
+  --> tests/ui/fail/missing_discriminant.rs:10:5
+   |
+10 |     B,
+   |     ^

@@ -1,0 +1,11 @@
+[package]
+name = "bitfield"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+bitfield-derive = { version = "=0.1.0", path = "../bitfield-derive" }
+
+[dev-dependencies]
+arbitrary-int = "2.1.1"

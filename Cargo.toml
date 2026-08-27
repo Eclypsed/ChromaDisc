@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["chromadisc", "cdio", "mmc-errors", "bcd"]
+members = ["chromadisc", "scsi3", "mmc-errors", "bcd", "bitfield", "bitfield-derive"]
 
 [workspace.package]
 version = "0.1.0"

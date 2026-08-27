@@ -1,0 +1,19 @@
+[package]
+name = "scsi3"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+array-concat = "0.5.5"
+bitflags = "2.10.0"
+const_format = "0.2.35"
+deku = "0.20.3"
+derive_more = { version = "2.1.1", features = ["full"] }
+mmc-errors = { path = "../mmc-errors" }
+nix = { version = "0.30.1", features = ["fs", "ioctl"] }
+seq-macro = "0.3.6"
+thiserror = "2.0.17"
+arbitrary-int = "2.1.1"
+bcd = { package = "const-bcd", version = "0.1.0", path = "../bcd" }
+bitfield = { version = "0.1.0", path = "../bitfield" }

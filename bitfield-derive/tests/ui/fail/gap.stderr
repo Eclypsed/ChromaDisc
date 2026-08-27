@@ -1,0 +1,6 @@
+error: field `Partial` has uncovered bit patterns: 0b10..=0b11
+         add variants that claim them, add `#[bits(fallback)]` to one variant, or add `reserved = ...` to the enum to assert they are intentionally unclaimed
+ --> tests/ui/fail/gap.rs:9:6
+  |
+9 | enum Partial {
+  |      ^^^^^^^

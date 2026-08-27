@@ -1,0 +1,19 @@
+[package]
+name = "bitfield-derive"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "extra-traits"] }
+proc-macro-crate = "3"
+
+[dev-dependencies]
+trybuild = "1"
+bitfield = { path = "../bitfield" }
+arbitrary-int = "2.1.1"

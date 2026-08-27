@@ -1,0 +1,5 @@
+error: `BitsEnum` variants must be fieldless: see PLAN §3.3 for why
+  --> tests/ui/fail/payload_variant.rs:12:6
+   |
+12 |     B(u8) = 0b01,
+   |      ^^^^

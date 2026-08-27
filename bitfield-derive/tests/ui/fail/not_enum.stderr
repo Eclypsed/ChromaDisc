@@ -1,0 +1,5 @@
+error: `BitsEnum` can only be derived on fieldless enums
+ --> tests/ui/fail/not_enum.rs:7:8
+  |
+7 | struct NotAnEnum {
+  |        ^^^^^^^^^

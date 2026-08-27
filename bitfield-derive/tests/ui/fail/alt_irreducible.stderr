@@ -1,0 +1,5 @@
+error: unsupported pattern; expected an integer literal, range, or `|` alternation. Use `#[bits(fallback)]` on a variant if you need a catch-all.
+  --> tests/ui/fail/alt_irreducible.rs:10:18
+   |
+10 |     #[bits(alt = _)]
+   |                  ^
