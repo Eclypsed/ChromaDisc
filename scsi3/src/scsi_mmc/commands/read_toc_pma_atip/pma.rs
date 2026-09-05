@@ -1,34 +1,70 @@
-use std::io::Cursor;
+use arbitrary_int::u4;
+use thiserror::Error;
 
-use bytes::Bytes;
-use deku::{deku_derive, reader::Reader, DekuError, DekuReader};
+use super::{ReadTocPmaAtip, ReadTocPmaAtipOpCode};
+use crate::{
+    core::{ReadCommand, TruncationError},
+    rainbow_books::q_subcode,
+};
 
-use crate::{core::Response, rainbow_books::q_subcode::Control};
+const PMA_MIN_BYTES: usize = 4;
+const TRACK_DESCRIPTOR_SIZE: usize = 11;
 
-#[deku_derive(DekuRead)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Pma {
-    #[deku(temp, bytes = "2", endian = "big", pad_bytes_after = "2")]
-    _pma_data_length: usize,
-
-    #[deku(count = "_pma_data_length.saturating_sub(2) / 11")]
-    pub toc_track_descriptors: Vec<PmaDescriptor>,
+#[derive(Debug, Error)]
+pub enum PmaError {
+    #[error(transparent)]
+    Truncated(#[from] TruncationError<PMA_MIN_BYTES>),
 }
 
-impl Response for Pma {
-    type Error = DekuError;
+impl ReadCommand<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<Pma> {
+    type Len = u16;
+    type Response<'a> = Pma;
+    type Error = PmaError;
 
-    fn from_bytes(bytes: Bytes) -> Result<Self, Self::Error> {
-        Self::from_reader_with_ctx(&mut Reader::new(Cursor::new(bytes)), ())
+    fn response_len(&self) -> Self::Len {
+        self.allocation_length
+    }
+
+    fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
+        if buf.len() < PMA_MIN_BYTES {
+            return Err(TruncationError(buf.len()).into());
+        }
+
+        let toc_data_length: usize = u16::from_be_bytes([buf[0], buf[1]]).into();
+
+        let max_bytes = buf.len().min(toc_data_length - 2);
+        let desc_bytes = buf.get(4..max_bytes).unwrap_or_default();
+
+        let pma_descriptors = desc_bytes
+            .chunks_exact(TRACK_DESCRIPTOR_SIZE)
+            .map(|chunk| PmaDescriptor {
+                adr: u4::extract_u8(chunk[1], 4),
+                control: q_subcode::Control::from_bits_truncate(chunk[1] & 0xF),
+                tno: chunk[2],
+                point: chunk[3],
+                min: chunk[4],
+                sec: chunk[5],
+                frame: chunk[6],
+                zero: chunk[7],
+                pmin: chunk[8],
+                psec: chunk[9],
+                pframe: chunk[10],
+            })
+            .collect::<Vec<_>>();
+
+        Ok(Pma { pma_descriptors })
     }
 }
 
-#[deku_derive(DekuRead)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Pma {
+    pub pma_descriptors: Vec<PmaDescriptor>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PmaDescriptor {
-    #[deku(pad_bytes_before = "1", bits = 4)]
-    adr: u8,
-    control: Control,
+    adr: u4,
+    control: q_subcode::Control,
     tno: u8,
     point: u8,
     min: u8,

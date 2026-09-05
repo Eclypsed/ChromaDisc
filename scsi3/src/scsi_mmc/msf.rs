@@ -1,6 +1,5 @@
 use std::fmt;
 
-use deku::{reader::Reader, DekuError, DekuRead, DekuReader};
 use derive_more::{Display, Into};
 use thiserror::Error;
 
@@ -28,16 +27,6 @@ impl TryFrom<u8> for Minute {
     }
 }
 
-impl<'a> DekuReader<'a> for Minute {
-    fn from_reader_with_ctx<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-        reader: &mut Reader<R>,
-        _: (),
-    ) -> Result<Self, DekuError> {
-        Self::try_from(u8::from_reader_with_ctx(reader, ())?)
-            .map_err(|e| DekuError::Parse(e.to_string().into()))
-    }
-}
-
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Into, Ord, Hash)]
 pub struct Second(u8);
 
@@ -59,16 +48,6 @@ impl TryFrom<u8> for Second {
         } else {
             Err(SecondRangeError(value))
         }
-    }
-}
-
-impl<'a> DekuReader<'a> for Second {
-    fn from_reader_with_ctx<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-        reader: &mut Reader<R>,
-        _: (),
-    ) -> Result<Self, DekuError> {
-        Self::try_from(u8::from_reader_with_ctx(reader, ())?)
-            .map_err(|e| DekuError::Parse(e.to_string().into()))
     }
 }
 
@@ -96,17 +75,7 @@ impl TryFrom<u8> for Frame {
     }
 }
 
-impl<'a> DekuReader<'a> for Frame {
-    fn from_reader_with_ctx<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-        reader: &mut Reader<R>,
-        _: (),
-    ) -> Result<Self, DekuError> {
-        Self::try_from(u8::from_reader_with_ctx(reader, ())?)
-            .map_err(|e| DekuError::Parse(e.to_string().into()))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DekuRead)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Msf(Minute, Second, Frame);
 
 impl Msf {
@@ -114,21 +83,34 @@ impl Msf {
         Self(min, sec, frame)
     }
 
-    pub const fn min(&self) -> Minute {
-        self.0
+    pub const fn minute(&self) -> &Minute {
+        &self.0
     }
 
-    pub const fn sec(&self) -> Second {
-        self.1
+    pub const fn second(&self) -> &Second {
+        &self.1
     }
 
-    pub const fn frame(&self) -> Frame {
-        self.2
+    pub const fn frame(&self) -> &Frame {
+        &self.2
+    }
+
+    pub const fn total_frames(&self) -> u32 {
+        (self.minute().0 as u32 * 60 + self.second().0 as u32) * 75 + self.frame().0 as u32
     }
 }
 
 impl fmt::Display for Msf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:02}:{:02}:{:02}", self.0, self.1, self.2)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct UnvalidatedMsf(u8, u8, u8);
+
+impl UnvalidatedMsf {
+    pub fn new(minute: u8, second: u8, frame: u8) -> Self {
+        Self(minute, second, frame)
     }
 }

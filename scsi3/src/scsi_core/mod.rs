@@ -1,6 +1,9 @@
+use arbitrary_int::traits::UnsignedInteger;
 use derive_more::{From, Into};
+use thiserror::Error;
 
 pub mod addressing;
+pub mod util;
 
 mod private {
     pub trait Sealed {}
@@ -91,10 +94,18 @@ pub trait Command<O: OpCodeDef> {
 }
 
 pub trait ReadCommand<O: OpCodeDef>: Command<O> {
+    type Len: UnsignedInteger;
     type Response<'a>;
     type Error;
 
-    fn allocation_length(&self) -> impl Into<usize>;
+    /// The maximum number of bytes the device may transfer for this command
+    /// as constructed.
+    ///
+    /// This is expected size of the response, not a promise about what it will
+    /// send. A non-conforming device may return fewer bytes, or attempt more.
+    /// Sizing a buffer, capping it, and detecting overrun are the transport's
+    /// responsibility.
+    fn response_len(&self) -> Self::Len;
     fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error>;
 }
 
@@ -116,5 +127,9 @@ pub trait WriteCommand<O: OpCodeDef>: Command<O> {
 ///
 /// See: [SAM-6]
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From, Into)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, From, Into)]
 pub struct Control(u8);
+
+#[derive(Debug, Error)]
+#[error("Expected at least {EXPECTED_SIZE} bytes of data, received {0}")]
+pub struct TruncationError<const EXPECTED_SIZE: usize>(pub usize);

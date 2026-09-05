@@ -3,9 +3,9 @@ use std::marker::PhantomData;
 use arbitrary_int::u4;
 
 use crate::core::addressing::Lba;
-use crate::mmc::msf::Msf;
+use crate::mmc::msf::{Msf, UnvalidatedMsf};
 
-use crate::core::{Command, Control, OpCode, OpCodeDef, Response};
+use crate::core::{Command, Control, OpCode, OpCodeDef};
 
 pub mod atip;
 pub mod cd_text;
@@ -15,14 +15,13 @@ pub mod pma;
 pub mod raw_toc;
 
 mod private {
-    use arbitrary_int::u4;
-
     pub trait AddressingModeSeal {
         const MSF: bool;
+        type ResponseAddressType;
     }
     pub trait ReadTocPmaAtipFormat {
         const MSF: bool;
-        const FORMAT: u4;
+        const FORMAT: super::u4;
     }
 }
 
@@ -30,11 +29,13 @@ pub trait AddressingMode: private::AddressingModeSeal {}
 
 impl private::AddressingModeSeal for Msf {
     const MSF: bool = true;
+    type ResponseAddressType = UnvalidatedMsf;
 }
 impl AddressingMode for Msf {}
 
 impl private::AddressingModeSeal for Lba {
     const MSF: bool = false;
+    type ResponseAddressType = Lba;
 }
 impl AddressingMode for Lba {}
 
@@ -46,7 +47,7 @@ pub struct ReadTocPmaAtip<R: ReadTocPmaAtipResponse> {
     control: Control,
 }
 
-pub trait ReadTocPmaAtipResponse: private::ReadTocPmaAtipFormat + Response {}
+pub trait ReadTocPmaAtipResponse: private::ReadTocPmaAtipFormat {}
 
 // Formatted TOC
 impl<A: formatted_toc::TrackStartAddress> private::ReadTocPmaAtipFormat
@@ -104,10 +105,10 @@ impl ReadTocPmaAtipResponse for cd_text::CdText {}
 
 // Distinct impls for each to enable specificity like in the constructors for example
 impl<A: formatted_toc::TrackStartAddress> ReadTocPmaAtip<formatted_toc::FormattedToc<A>> {
-    pub fn new(track_number: u8, allocation_length: u16, control: Control) -> Self {
+    pub fn new(starting_track_number: u8, allocation_length: u16, control: Control) -> Self {
         Self {
             _response_marker: PhantomData,
-            track_session_number: track_number,
+            track_session_number: starting_track_number,
             allocation_length,
             control,
         }
@@ -128,10 +129,10 @@ impl<A: multi_session_info::TrackStartAddress>
 }
 
 impl ReadTocPmaAtip<raw_toc::RawToc> {
-    pub fn new(session_number: u8, allocation_length: u16, control: Control) -> Self {
+    pub fn new(starting_session_number: u8, allocation_length: u16, control: Control) -> Self {
         Self {
             _response_marker: PhantomData,
-            track_session_number: session_number,
+            track_session_number: starting_session_number,
             allocation_length,
             control,
         }
@@ -174,8 +175,6 @@ impl ReadTocPmaAtip<cd_text::CdText> {
 type ReadTocPmaAtipOpCode = OpCode<0x43>;
 
 impl<R: ReadTocPmaAtipResponse> Command<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<R> {
-    type Response = R;
-
     fn as_cdb(&self) -> <ReadTocPmaAtipOpCode as OpCodeDef>::Cdb {
         [
             ReadTocPmaAtipOpCode::OP_CODE,

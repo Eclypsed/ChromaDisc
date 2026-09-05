@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Bound, RangeBounds, Sub, SubAssign};
 
 use derive_more::{Display, From, Into};
 
@@ -6,7 +6,7 @@ use derive_more::{Display, From, Into};
 ///
 /// The LBA is the number that a Host uses to reference Logical Blocks on a block storage device.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Display, PartialEq, Eq, PartialOrd, Ord, From, Into)]
+#[derive(Clone, Copy, Debug, Display, PartialEq, Hash, Eq, PartialOrd, Ord, From, Into)]
 pub struct Lba(i32);
 
 // macro_rules! lba {
@@ -57,6 +57,42 @@ impl SubAssign<i32> for Lba {
     #[inline]
     fn sub_assign(&mut self, rhs: i32) {
         *self = *self - rhs
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Span<T> {
+    start: T,
+    end: T,
+}
+
+impl<T> Span<T> {
+    pub fn start(&self) -> &T {
+        &self.start
+    }
+
+    pub fn end(&self) -> &T {
+        &self.end
+    }
+}
+
+impl<T: PartialOrd> Span<T> {
+    pub fn new(start: T, end: T) -> Option<Self> {
+        (start <= end).then_some(Self { start, end })
+    }
+
+    pub fn contains(&self, value: &T) -> bool {
+        &self.start <= value && value <= &self.end
+    }
+}
+
+impl<T> RangeBounds<T> for Span<T> {
+    fn start_bound(&self) -> std::ops::Bound<&T> {
+        Bound::Included(&self.start)
+    }
+
+    fn end_bound(&self) -> Bound<&T> {
+        Bound::Excluded(&self.end)
     }
 }
 

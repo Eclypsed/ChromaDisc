@@ -1,141 +1,124 @@
-use std::marker::PhantomData;
-
-use arbitrary_int::{u2, u3, u5};
+use arbitrary_int::{u2, u3, u4, u5};
 use bitfield::{Bits, BitsEnum, BitsRepr};
+use thiserror::Error;
+use tinystr::UnvalidatedTinyAsciiStr;
 
-use crate::core::{Command, Control, OpCode, OpCodeDef, ReadCommand};
+use super::{Inquiry, InquiryOpCode};
 
-mod private {
-    pub trait VpdPageSeal {}
-    pub trait InquirySeal {
-        const PAGE_OP_CODE: u8;
-        const EVPD: bool;
-        const CMD_DT: bool;
-    }
-}
+use crate::core::{util::Bit, ReadCommand, TruncationError};
 
-pub trait InquiryType: private::InquirySeal {}
+const STANDARD_INQUIRY_MIN_BYTES: usize = 36;
+const RESPONSE_DATA_FORMAT: u4 = u4::new(0x2);
+const MAX_VERSION_DESCRIPTORS: usize = 8;
 
-pub trait VpdPage: private::VpdPageSeal {
-    const PAGE_CODE: u8;
-}
-
-impl private::InquirySeal for StandardInquiry {
-    const PAGE_OP_CODE: u8 = 0x00;
-    const CMD_DT: bool = false;
-    const EVPD: bool = false;
-}
-impl InquiryType for StandardInquiry {}
-
-pub struct VpdInquiry<T: VpdPage>(PhantomData<T>);
-
-impl<T: VpdPage> private::InquirySeal for VpdInquiry<T> {
-    const PAGE_OP_CODE: u8 = T::PAGE_CODE;
-    const CMD_DT: bool = false;
-    const EVPD: bool = true;
-}
-impl<T: VpdPage> InquiryType for VpdInquiry<T> {}
-
-pub struct OpCodeInquiry<T: OpCodeDef>(PhantomData<T>);
-
-impl<T: OpCodeDef> private::InquirySeal for OpCodeInquiry<T> {
-    const PAGE_OP_CODE: u8 = T::OP_CODE;
-    const CMD_DT: bool = true;
-    const EVPD: bool = false;
-}
-impl<T: OpCodeDef> InquiryType for OpCodeInquiry<T> {}
-
-pub struct Inquiry<T: InquiryType> {
-    _page_code_marker: PhantomData<T>,
-    allocation_length: u16,
-    control: Control,
-}
-
-impl<T: InquiryType> Inquiry<T> {
-    pub fn new(allocation_length: u16, control: Control) -> Self {
-        Self {
-            _page_code_marker: PhantomData,
-            allocation_length,
-            control,
-        }
-    }
-}
-
-type InquiryOpCode = OpCode<0x12>;
-
-impl<T: InquiryType> Command<InquiryOpCode> for Inquiry<T> {
-    fn as_cdb(&self) -> <InquiryOpCode as OpCodeDef>::Cdb {
-        [
-            InquiryOpCode::OP_CODE,
-            (u8::from(T::CMD_DT) << 1) | u8::from(T::EVPD),
-            T::PAGE_OP_CODE,
-            (self.allocation_length >> 8) as u8,
-            self.allocation_length as u8,
-            self.control.into(),
-        ]
-    }
+#[derive(Debug, Error)]
+pub enum StandardInquiryError {
+    /// The error returned when attempting to parse fewer than 36 bytes into
+    /// [`StandardInquiry`](StandardInquiry).
+    ///
+    /// The standard INQUIRY data shall contain at least 36 bytes according to SCSI-2 through SPC-7.
+    #[error(transparent)]
+    Truncated(#[from] TruncationError<STANDARD_INQUIRY_MIN_BYTES>),
+    /// The error returned when a RESPONSE DATA FORMAT vlaue other tha 2h is encountered. Codes
+    /// less than 2h are obsolete as of SCSI-2 and are not supported by the library. Codes 3h-Fh
+    /// are reserved and will result in a breaking data structure change should they every be
+    /// allocated.
+    #[error("Invalid Response Data Format value `{0:X}`, expected {RESPONSE_DATA_FORMAT:X}")]
+    InvalidResponseDataFormat(u4),
 }
 
 impl ReadCommand<InquiryOpCode> for Inquiry<StandardInquiry> {
+    type Len = u16;
     type Response<'a> = StandardInquiry;
-    type Error = (); // TODO
+    type Error = StandardInquiryError;
 
-    fn allocation_length(&self) -> impl Into<usize> {
+    fn response_len(&self) -> Self::Len {
         self.allocation_length
     }
 
-    // TODO
     fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
-        let _buf = buf;
-        todo!()
-    }
-}
+        if buf.len() < STANDARD_INQUIRY_MIN_BYTES {
+            return Err(TruncationError::<STANDARD_INQUIRY_MIN_BYTES>(buf.len()).into());
+        }
 
-impl<T: VpdPage> ReadCommand<InquiryOpCode> for Inquiry<VpdInquiry<T>> {
-    type Response<'a> = T;
-    type Error = (); // TODO
+        // Not sure if there is really anything I can do with this other than use it to make an
+        // additional "bytes left" return value.
+        let _additional_length: usize = buf[4].into();
 
-    fn allocation_length(&self) -> impl Into<usize> {
-        self.allocation_length
-    }
+        let response_data_format = u4::extract_u8(buf[3], 0);
+        if response_data_format != RESPONSE_DATA_FORMAT {
+            return Err(StandardInquiryError::InvalidResponseDataFormat(
+                response_data_format,
+            ));
+        }
 
-    // TODO
-    fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
-        let _buf = buf;
-        todo!()
-    }
-}
-
-impl<T: OpCodeDef> ReadCommand<InquiryOpCode> for Inquiry<OpCodeInquiry<T>> {
-    type Response<'a> = T;
-    type Error = (); // TODO
-
-    fn allocation_length(&self) -> impl Into<usize> {
-        self.allocation_length
-    }
-
-    // TODO
-    fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
-        let _buf = buf;
-        todo!()
+        Ok(StandardInquiry {
+            peripheral_qualifier: Bits::<PeripheralQualifier>::new(u3::extract_u8(buf[0], 5)),
+            peripheral_device_type: Bits::<PeripheralDeviceType>::new(u5::extract_u8(buf[0], 0)),
+            rmb: buf[1].bit(7),
+            lu_cong: buf[1].bit(6),
+            hot_pluggable: Bits::<HotPluggable>::new(u2::extract_u8(buf[1], 4)),
+            version: Bits::<Version>::new(buf[2]),
+            aerc: buf[3].bit(7),
+            trm_tsk: buf[3].bit(6),
+            norm_aca: buf[3].bit(5),
+            hi_sup: buf[3].bit(4),
+            sccs: buf[5].bit(7),
+            acc: buf[5].bit(6),
+            tpgs: Bits::<TargetPortGroupSupport>::new(u2::extract_u8(buf[5], 4)),
+            third_party_copy: buf[5].bit(3),
+            protect: buf[5].bit(0),
+            basic_queuing: buf[6].bit(7),
+            enclosure_services: buf[6].bit(6),
+            multi_port: buf[6].bit(4),
+            medium_changer: buf[6].bit(3),
+            ackreqq: buf[6].bit(2),
+            addr32: buf[6].bit(1),
+            addr16: buf[6].bit(0),
+            relative_addressing: buf[7].bit(7),
+            wbus32: buf[7].bit(6),
+            wbus16: buf[7].bit(5),
+            sync: buf[7].bit(4),
+            linked: buf[7].bit(3),
+            transfer_disable: buf[7].bit(2),
+            command_queuing: buf[7].bit(1),
+            vendor_identification: UnvalidatedTinyAsciiStr::try_from_utf8(&buf[8..=15]).unwrap(),
+            product_identification: UnvalidatedTinyAsciiStr::try_from_utf8(&buf[16..=31]).unwrap(),
+            product_revision_level: UnvalidatedTinyAsciiStr::try_from_utf8(&buf[32..=35]).unwrap(),
+            // Beyond this point the length is unvalidated, use get() not indexing
+            clocking: buf
+                .get(56)
+                .map(|b| Bits::<Clocking>::new(u2::extract_u8(*b, 2))),
+            qas: buf.get(56).map(|b| b.bit(1)),
+            ius: buf.get(56).map(|b| b.bit(0)),
+            version_descriptors: buf
+                .get(58..)
+                .unwrap_or_default()
+                .chunks_exact(2)
+                .take(MAX_VERSION_DESCRIPTORS)
+                .map(|b| u16::from_be_bytes([b[0], b[1]]))
+                .collect(),
+        })
     }
 }
 
 /// SCSI peripheral qualifier (3 bits, from the INQUIRY data).
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, BitsEnum)]
-#[bits(2, repr = u2, reserved = 0b10)]
+#[bits(3, repr = u3, reserved = 0b010)]
 pub enum PeripheralQualifier {
     /// 000b - the specified peripheral device type is currently connected to this
     /// logical unit, or the device server can't tell whether it is. Does not imply
     /// the device is ready for access.
-    Connected = 0b00,
+    Connected = 0b000,
     /// 001b - the device server supports this peripheral device type on this logical
     /// unit, but no physical device is currently connected.
-    NotConnected = 0b01,
+    NotConnected = 0b001,
     /// 011b - the device server cannot support a physical device on this logical unit.
     /// The peripheral device type shall be 1Fh; all other values are reserved here.
-    Unsupported = 0b11,
+    Unsupported = 0b011,
+    #[bits(alt = 0b101..=0b111)]
+    VendorSpecific = 0b100,
 }
 
 /// SCSI PERIPHERAL DEVICE TYPE field (5 bits, INQUIRY byte 0 bits 4:0).
@@ -330,6 +313,7 @@ pub enum Clocking {
     StAndDt = 0b11,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StandardInquiry {
     pub peripheral_qualifier: Bits<PeripheralQualifier>,
     pub peripheral_device_type: Bits<PeripheralDeviceType>,
@@ -365,16 +349,18 @@ pub struct StandardInquiry {
     pub transfer_disable: bool,
     pub command_queuing: bool,
     // byte 7 bit 0 vendor specific
-    pub vendor_identification: [u8; 8],
-    pub product_identification: [u8; 16],
-    pub product_revision_level: [u8; 4],
+    pub vendor_identification: UnvalidatedTinyAsciiStr<8>,
+    pub product_identification: UnvalidatedTinyAsciiStr<16>,
+    pub product_revision_level: UnvalidatedTinyAsciiStr<4>,
     // bytes 36:55 reserved
     // byte 56 bit 7:4 reserved
-    pub clocking: Bits<Clocking>,
-    pub qas: bool,
-    pub ius: bool,
+    pub clocking: Option<Bits<Clocking>>,
+    pub qas: Option<bool>,
+    pub ius: Option<bool>,
     // byte 57 reserved
-    pub version_descriptors: [u16; 8],
+    // All version descriptors will be included, including 0000h. If there are fewer than 8
+    // descriptors that means the response was truncated.
+    pub version_descriptors: Vec<u16>,
     // byte 74:95 reserved
     // byte 96:n vendor specific
 }

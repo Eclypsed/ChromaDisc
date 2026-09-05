@@ -1,1 +1,4 @@
 - For exhaustive enums, provide a more convenient method to go from Bits<T> to T. Currently have to do T::from(bits.bits())
+- Instead of specifically using fmt::Binary for Debug, Display, etc. let the user choose how they want to format Bits<T> by implementinf all the different format traits for it.
+- There is a discrepency in the plan document where it describes the from_bits and to_bits functions differently. In one case they are a method of the BitsRepr trait, in another they are a separate const fn that is emitted in an impl by the macro.
+- It is possible to declare a repr with a smaller size than the width declaration. Should maybe enforce that BitsRepr::Bits::BITS >= BitsRepr::BITS

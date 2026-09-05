@@ -1,5 +1,6 @@
 use std::{
     ffi::{c_uchar, c_void},
+    os::fd::RawFd,
     ptr,
 };
 
@@ -7,7 +8,7 @@ use derive_more::TryFrom;
 use nix::ioctl_read_bad;
 use thiserror::Error;
 
-use super::error::MMCError;
+// use super::error::MMCError;
 
 #[derive(Debug, Error)]
 pub enum ScsiError {
@@ -21,19 +22,10 @@ pub enum ScsiError {
     InvalidResidual { resid: i32, allocated: u32 },
     #[error("SG IO failed with status code `{_0:?}`")]
     BadStatus(StatusCondition),
-    #[error("MMC Error: {0:?}")]
-    MMCError(MMCError),
+    #[error("Sense Data sk={sk:X}, asc={asc:02X}, ascq={ascq:02X}")]
+    KeyCodeQualifier { sk: u8, asc: u8, ascq: u8 },
     #[error("Unknown SCSI error, `masked_status`: {_0:02X}")]
     UnknownStatus(u8),
-    #[error(
-        "Unknown SCSI error, status={status:?}, sense_key=0x{sk:X}, asc=0x{asc:02X}, ascq=0x{ascq:02X})"
-    )]
-    UnknownSenseData {
-        status: StatusCondition,
-        sk: u8,
-        asc: u8,
-        ascq: u8,
-    },
 }
 
 // Many of these are straight from the linux source code in linux/include/scsi/sg.h
@@ -100,20 +92,19 @@ struct SgIoHeader {
 ioctl_read_bad!(ioctl_sg_io, SG_IO, SgIoHeader);
 
 pub fn run_sgio(
-    fd: i32,
+    fd: RawFd,
     cdb: &mut [u8],
-    allocation_len: usize,
+    buf: &mut [u8],
     dxfer_direction: DxferDirection,
-) -> Result<Vec<u8>, ScsiError> {
+) -> Result<u32, ScsiError> {
     const SENSE_BUF_SIZE: u8 = 64;
     let mut sense = [0u8; SENSE_BUF_SIZE as usize];
+    let dxfer_len: u32 = buf
+        .len()
+        .try_into()
+        .map_err(|_| ScsiError::InvalidData(buf.len()))?;
 
-    let mut data = Vec::with_capacity(allocation_len);
-
-    let cdb_len = cdb.len();
-    let cmd_len = u8::try_from(cdb_len).map_err(|_| ScsiError::InvalidCDB(cdb_len))?;
-    let dxfer_len =
-        u32::try_from(allocation_len).map_err(|_| ScsiError::InvalidData(allocation_len))?;
+    let cmd_len = u8::try_from(cdb.len()).map_err(|_| ScsiError::InvalidCDB(cdb.len()))?;
 
     let mut header = SgIoHeader {
         interface_id: 'S' as i32,
@@ -122,7 +113,7 @@ pub fn run_sgio(
         mx_sb_len: SENSE_BUF_SIZE,
         iovec_count: 0,
         dxfer_len,
-        dxferp: data.as_mut_ptr() as *mut c_void,
+        dxferp: buf.as_mut_ptr() as *mut c_void,
         cmdp: cdb.as_mut_ptr(),
         sbp: sense.as_mut_ptr(),
         timeout: 10_000,
@@ -156,17 +147,7 @@ pub fn run_sgio(
         // From the SCSI HOWTO: "In practice it only reports underruns (i.e. positive number) as data
         // overruns should never happen"
 
-        if let Ok(residual) = usize::try_from(header.resid)
-            && allocation_len > residual
-        {
-            data.truncate(allocation_len - residual);
-            return Ok(data);
-        };
-
-        return Err(ScsiError::InvalidResidual {
-            resid: header.resid,
-            allocated: dxfer_len,
-        });
+        return Ok(dxfer_len.saturating_sub(header.resid as u32)); // Not sure if this is a safe cast
     }
 
     // If there's sense data, parse it for more details
@@ -175,16 +156,7 @@ pub fn run_sgio(
         let asc = sense[12]; // Additional Sense Code
         let ascq = sense[13]; // Additional Sense Code Qualifier
 
-        let Some(mmc_error) = MMCError::from_codes(sk, asc, ascq) else {
-            return Err(ScsiError::UnknownSenseData {
-                status,
-                sk,
-                asc,
-                ascq,
-            });
-        };
-
-        return Err(ScsiError::MMCError(mmc_error));
+        return Err(ScsiError::KeyCodeQualifier { sk, asc, ascq });
     }
 
     Err(ScsiError::BadStatus(status))
