@@ -3,76 +3,53 @@ use std::fmt;
 use derive_more::{Display, Into};
 use thiserror::Error;
 
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Into, Ord, Hash)]
-pub struct Minute(u8);
+macro_rules! bounded_u8 {
+    ($name:ident, $err:ident, $max:literal) => {
+        #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Into)]
+        pub struct $name(u8);
+
+        #[derive(Debug, Error)]
+        #[error("Invalid {name} {0}. Must be <= {max}", name = stringify!($name), max = $max)]
+        pub struct $err(u8);
+
+        impl $name {
+            pub const MIN: Self = Self(0);
+            pub const MAX: Self = Self($max);
+
+            pub const fn new(value: u8) -> Result<Self, $err> {
+                if value <= $max {
+                    Ok(Self(value))
+                } else {
+                    Err($err(value))
+                }
+            }
+
+            pub const fn get(self) -> u8 {
+                self.0
+            }
+        }
+
+        impl TryFrom<u8> for $name {
+            type Error = $err;
+            fn try_from(value: u8) -> Result<Self, Self::Error> {
+                Self::new(value)
+            }
+        }
+    };
+}
+
+bounded_u8!(Minute, MinuteRangeError, 99);
+bounded_u8!(Second, SecondRangeError, 59);
+bounded_u8!(Frame, FrameRangeError, 74);
 
 #[derive(Debug, Error)]
-#[error("Invalid Minute {0}. Must be <= {max}", max = Minute::MAX)]
-pub struct MinuteRangeError(u8);
-
-impl Minute {
-    pub const MIN: Self = Self(0);
-    pub const MAX: Self = Self(99);
-}
-
-impl TryFrom<u8> for Minute {
-    type Error = MinuteRangeError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if u8::from(Self::MIN) <= value && value <= u8::from(Self::MAX) {
-            Ok(Self(value))
-        } else {
-            Err(MinuteRangeError(value))
-        }
-    }
-}
-
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Into, Ord, Hash)]
-pub struct Second(u8);
-
-#[derive(Debug, Error)]
-#[error("Invalid Second {0}. Must be <= {max}", max = Second::MAX)]
-pub struct SecondRangeError(u8);
-
-impl Second {
-    pub const MIN: Self = Self(0);
-    pub const MAX: Self = Self(59);
-}
-
-impl TryFrom<u8> for Second {
-    type Error = SecondRangeError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if u8::from(Self::MIN) <= value && value <= u8::from(Self::MAX) {
-            Ok(Self(value))
-        } else {
-            Err(SecondRangeError(value))
-        }
-    }
-}
-
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Into, Ord, Hash)]
-pub struct Frame(u8);
-
-#[derive(Debug, Error)]
-#[error("Invalid Frame {0}. Must be <= {max}", max = Frame::MAX)]
-pub struct FrameRangeError(u8);
-
-impl Frame {
-    pub const MIN: Self = Self(0);
-    pub const MAX: Self = Self(74);
-}
-
-impl TryFrom<u8> for Frame {
-    type Error = FrameRangeError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if u8::from(Self::MIN) <= value && value <= u8::from(Self::MAX) {
-            Ok(Self(value))
-        } else {
-            Err(FrameRangeError(value))
-        }
-    }
+pub enum MsfError {
+    #[error(transparent)]
+    Minute(#[from] MinuteRangeError),
+    #[error(transparent)]
+    Second(#[from] SecondRangeError),
+    #[error(transparent)]
+    Frame(#[from] FrameRangeError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -83,20 +60,45 @@ impl Msf {
         Self(min, sec, frame)
     }
 
-    pub const fn minute(&self) -> &Minute {
-        &self.0
+    pub const fn try_new(m: u8, s: u8, f: u8) -> Result<Self, MsfError> {
+        let min = match Minute::new(m) {
+            Ok(v) => v,
+            Err(e) => return Err(MsfError::Minute(e)),
+        };
+        let sec = match Second::new(s) {
+            Ok(v) => v,
+            Err(e) => return Err(MsfError::Second(e)),
+        };
+        let frame = match Frame::new(f) {
+            Ok(v) => v,
+            Err(e) => return Err(MsfError::Frame(e)),
+        };
+        Ok(Self(min, sec, frame))
     }
 
-    pub const fn second(&self) -> &Second {
-        &self.1
+    pub const fn minute(&self) -> Minute {
+        self.0
     }
 
-    pub const fn frame(&self) -> &Frame {
-        &self.2
+    pub const fn second(&self) -> Second {
+        self.1
+    }
+
+    pub const fn frame(&self) -> Frame {
+        self.2
     }
 
     pub const fn total_frames(&self) -> u32 {
         (self.minute().0 as u32 * 60 + self.second().0 as u32) * 75 + self.frame().0 as u32
+    }
+}
+
+// TODO: MSF macro, e.g. msf!(07:49:32)
+
+impl TryFrom<(u8, u8, u8)> for Msf {
+    type Error = MsfError;
+    fn try_from((m, s, f): (u8, u8, u8)) -> Result<Self, Self::Error> {
+        Self::try_new(m, s, f)
     }
 }
 

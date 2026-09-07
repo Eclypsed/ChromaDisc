@@ -1,16 +1,11 @@
 use super::*;
 
-impl<const MAIN_CHANNEL_SELECTION: u8> ReadCd<Lba, Mode2Form2<MAIN_CHANNEL_SELECTION>>
+impl<const MAIN_CHANNEL_SELECTION: u8, C: C2ErrorInfo, S: SubChannelSelection>
+    ReadCd<Lba, Mode2Form2<MAIN_CHANNEL_SELECTION>, C, S>
 where
     Mode2Form2<MAIN_CHANNEL_SELECTION>: SectorSelection,
 {
-    pub fn new(
-        starting_lba: Lba,
-        transfer_length: u24,
-        c2_error_info: C2ErrorInfo,
-        sub_channel_selection: SubChannelSelection,
-        control: Control,
-    ) -> Self {
+    pub fn new(starting_lba: Lba, transfer_length: u24, control: Control) -> Self {
         Self {
             _sector_selection: PhantomData,
             digital_audio_play: false,
@@ -18,68 +13,65 @@ where
                 starting_lba,
                 transfer_length,
             },
-            c2_error_info,
-            sub_channel_selection,
+            _c2_marker: PhantomData,
+            _sub_channel_marker: PhantomData,
             control,
         }
     }
 }
 
-impl<O: OpCodeDef, A: ReadCdAddress, const MAIN_CHANNEL_SELECTION: u8> ReadCommand<O>
-    for ReadCd<A, Mode2Form2<MAIN_CHANNEL_SELECTION>>
+impl<const MAIN_CHANNEL_SELECTION: u8, C: C2ErrorInfo, S: SubChannelSelection>
+    ReadCd<Msf, Mode2Form2<MAIN_CHANNEL_SELECTION>, C, S>
 where
     Mode2Form2<MAIN_CHANNEL_SELECTION>: SectorSelection,
-    ReadCd<A, Mode2Form2<MAIN_CHANNEL_SELECTION>>: Command<O>,
 {
-    type Len = u64;
-    type Response<'a> = ();
-    type Error = ();
-
-    fn response_len(&self) -> Self::Len {
-        todo!()
-    }
-
-    fn parse<'a>(&self, _buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
-        todo!()
+    pub fn new(msf_range: Span<Msf>, control: Control) -> Self {
+        Self {
+            _sector_selection: PhantomData,
+            digital_audio_play: false,
+            addressing_params: msf_range,
+            _c2_marker: PhantomData,
+            _sub_channel_marker: PhantomData,
+            control,
+        }
     }
 }
 
-pub struct Mode2Form2<const MAIN_CHANNEL_SELECTION: u8>;
+pub struct Mode2Form2<
+    const MAIN_CHANNEL_SELECTION: u8 = {
+        MainChannel::SYNC
+            | MainChannel::SUB_HEADER
+            | MainChannel::HEADER
+            | MainChannel::USER_DATA
+            | MainChannel::EDC_ECC
+    },
+>;
 impl_sector_selection!(
     Mode2Form2,
-    private::SectorType::Mode2Form2,
-    [
-        MainChannelSelection::NO_FIELDS, // 00h
-        MainChannelSelection::EDC_ECC,   // 08h
-        MainChannelSelection::USER_DATA, // 10h
-        MainChannelSelection::USER_DATA | MainChannelSelection::EDC_ECC, // 18h
-        MainChannelSelection::HEADER,    // 20h
-        MainChannelSelection::SUB_HEADER, // 40h
-        MainChannelSelection::SUB_HEADER | MainChannelSelection::USER_DATA, // 50h
-        MainChannelSelection::SUB_HEADER // 58h
-            | MainChannelSelection::USER_DATA
-            | MainChannelSelection::EDC_ECC,
-        MainChannelSelection::SUB_HEADER | MainChannelSelection::HEADER, // 60h
-        MainChannelSelection::SUB_HEADER // 70h
-            | MainChannelSelection::HEADER
-            | MainChannelSelection::USER_DATA,
-        MainChannelSelection::SUB_HEADER // 78h
-            | MainChannelSelection::HEADER
-            | MainChannelSelection::USER_DATA
-            | MainChannelSelection::EDC_ECC,
-        MainChannelSelection::SYNC,                                // 80h
-        MainChannelSelection::SYNC | MainChannelSelection::HEADER, // A0h
-        MainChannelSelection::SYNC // E0h
-            | MainChannelSelection::SUB_HEADER
-            | MainChannelSelection::HEADER,
-        MainChannelSelection::SYNC // F0h
-            | MainChannelSelection::SUB_HEADER
-            | MainChannelSelection::HEADER
-            | MainChannelSelection::USER_DATA,
-        MainChannelSelection::SYNC // F8h
-            | MainChannelSelection::SUB_HEADER
-            | MainChannelSelection::HEADER
-            | MainChannelSelection::USER_DATA
-            | MainChannelSelection::EDC_ECC,
-    ]
+    expected_sector_type: u3::new(0b101),
+    field_sizes: {
+        sync:       12,
+        header:     4,
+        sub_header: 8,
+        user_data:  2324,
+        edc_ecc:    4, // Optional, filled with 0s if not present
+    },
+    selections: [
+        [],                                             // 00h
+        [edc_ecc],                                      // 08h
+        [user_data],                                    // 10h
+        [user_data, edc_ecc],                           // 18h
+        [header],                                       // 20h
+        [sub_header],                                   // 40h
+        [sub_header, user_data],                        // 50h
+        [sub_header, user_data, edc_ecc],               // 58h
+        [header, sub_header],                           // 60h
+        [header, sub_header, user_data],                // 70h
+        [header, sub_header, user_data, edc_ecc],       // 78h
+        [sync],                                         // 80h
+        [sync, header],                                 // A0h
+        [sync, header, sub_header],                     // E0h
+        [sync, header, sub_header, user_data],          // F0h
+        [sync, header, sub_header, user_data, edc_ecc], // F8h
+    ],
 );

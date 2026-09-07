@@ -78,7 +78,7 @@ impl<T> Span<T> {
 
 impl<T: PartialOrd> Span<T> {
     pub fn new(start: T, end: T) -> Option<Self> {
-        (start <= end).then_some(Self { start, end })
+        (start < end).then_some(Self { start, end })
     }
 
     pub fn contains(&self, value: &T) -> bool {

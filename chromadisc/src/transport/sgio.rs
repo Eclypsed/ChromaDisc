@@ -99,6 +99,14 @@ pub fn run_sgio(
 ) -> Result<u32, ScsiError> {
     const SENSE_BUF_SIZE: u8 = 64;
     let mut sense = [0u8; SENSE_BUF_SIZE as usize];
+
+    // On linux the maximum dxfer len is defined by `max_hw_sectors_kb`.
+    // Example (my drive):
+    // `cat /sys/block/sr0/queue/max_hw_sectors_kb` -> 120
+    // 120 * 1024 = 122880 bytes
+    //
+    // READ CD (CdDa<User Data>, NoC2, NoSubChannel, 52 sectors) -> 122304 bytes WORKS
+    // READ CD (CdDa<User Data>, NoC2, NoSubChannel, 53 sectors) -> 124656 bytes FAILS (Ioctl Error EIO)
     let dxfer_len: u32 = buf
         .len()
         .try_into()
