@@ -51,7 +51,7 @@ pub enum DiscApplicationCode {
 pub struct MediaIdentificationCode(u16);
 
 pub mod cdr {
-    use std::ops::Range;
+    use core::ops::Range;
 
     use bitfield::BitsEnum;
 

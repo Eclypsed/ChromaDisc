@@ -1,11 +1,11 @@
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use arbitrary_int::u4;
 
 use crate::core::addressing::Lba;
-use crate::mmc::msf::{Msf, UnvalidatedMsf};
 
 use crate::core::{Command, Control, OpCode, OpCodeDef};
+use crate::mmc::device_models::cd::addressing::{Msf, UnvalidatedMsf};
 
 pub mod atip;
 pub mod cd_text;

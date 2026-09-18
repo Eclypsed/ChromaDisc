@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Bound, RangeBounds, Sub, SubAssign};
+use core::ops::{Add, AddAssign, Bound, RangeBounds, Sub, SubAssign};
 
 use derive_more::{Display, From, Into};
 
@@ -60,6 +60,7 @@ impl SubAssign<i32> for Lba {
     }
 }
 
+// This might belong somewhere else
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Span<T> {
     start: T,
@@ -87,7 +88,7 @@ impl<T: PartialOrd> Span<T> {
 }
 
 impl<T> RangeBounds<T> for Span<T> {
-    fn start_bound(&self) -> std::ops::Bound<&T> {
+    fn start_bound(&self) -> core::ops::Bound<&T> {
         Bound::Included(&self.start)
     }
 

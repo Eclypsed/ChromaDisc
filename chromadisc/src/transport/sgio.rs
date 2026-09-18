@@ -105,8 +105,8 @@ pub fn run_sgio(
     // `cat /sys/block/sr0/queue/max_hw_sectors_kb` -> 120
     // 120 * 1024 = 122880 bytes
     //
-    // READ CD (CdDa<User Data>, NoC2, NoSubChannel, 52 sectors) -> 122304 bytes WORKS
-    // READ CD (CdDa<User Data>, NoC2, NoSubChannel, 53 sectors) -> 124656 bytes FAILS (Ioctl Error EIO)
+    // READ CD (CdDa, UserData, NoC2, NoSubChannel, 52 sectors) -> 122304 bytes WORKS
+    // READ CD (CdDa, UserData, NoC2, NoSubChannel, 53 sectors) -> 124656 bytes FAILS (Ioctl Error EIO)
     let dxfer_len: u32 = buf
         .len()
         .try_into()

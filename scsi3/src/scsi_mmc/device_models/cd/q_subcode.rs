@@ -62,26 +62,11 @@ bitflags! {
     }
 }
 
-impl<'a> DekuReader<'a> for Control {
-    fn from_reader_with_ctx<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-        reader: &mut Reader<R>,
-        _: (),
-    ) -> Result<Self, DekuError>
-    where
-        Self: Sized,
-    {
-        Ok(Self::from_bits_retain(u8::from_reader_with_ctx(
-            reader,
-            BitSize(4),
-        )?))
-    }
-}
-
 use bcd::{bcd, Bcd};
-use deku::{ctx::BitSize, reader::Reader, DekuError, DekuReader};
 use thiserror::Error;
+use tinystr::TinyAsciiStr;
 
-use crate::mmc::msf::Msf;
+use crate::mmc::device_models::cd::addressing::Msf;
 
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TrackNumber(Bcd<1>);
@@ -168,7 +153,7 @@ pub struct TrackPosition {
 impl_dataq!(TrackPosition, 1);
 
 pub struct MediaCatalogNumber {
-    pub mcn: String,
+    pub mcn: TinyAsciiStr<13>,
     pub aframe: Bcd<1>,
 }
 

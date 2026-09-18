@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use arbitrary_int::u4;
 use derive_where::derive_where;
 use thiserror::Error;
@@ -5,7 +6,7 @@ use thiserror::Error;
 use super::{ReadTocPmaAtip, ReadTocPmaAtipOpCode};
 use crate::{
     core::{ReadCommand, TruncationError},
-    rainbow_books::q_subcode,
+    mmc::device_models::cd::q_subcode,
 };
 
 pub use super::formatted_toc::TrackStartAddress;

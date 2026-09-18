@@ -3,21 +3,20 @@ use std::{
     os::fd::{AsRawFd, OwnedFd},
 };
 
-#[allow(unused_imports)]
 use scsi3::{
     core::{
         addressing::{Lba, Span},
         Command, Control, ReadCommand,
     },
-    mmc::{
-        commands::{
-            read_cd::{
-                cd_da::CdDa, mode1::Mode1, mode2_form1::Mode2Form1, BlockC2Pointers, C2ErrorInfo,
-                MainChannel, NoC2, NoSubChannel, ReadCd, SubChannelSelection,
+    mmc::commands::{
+        read_cd::{
+            main_channel::{
+                selections::{NoFields, SyncAllHeadersUserDataEdcEcc, UserData},
+                CdDa, Mode2Form1,
             },
-            read_toc_pma_atip::{formatted_toc::FormattedToc, ReadTocPmaAtip},
+            BlockC2Pointers, RawPw, ReadCd,
         },
-        msf::{Minute, Msf},
+        read_toc_pma_atip::{formatted_toc::FormattedToc, ReadTocPmaAtip},
     },
     spc::commands::inquiry::{standard_inquiry::StandardInquiry, Inquiry},
 };
@@ -82,9 +81,14 @@ fn main() -> io::Result<()> {
     // println!("INQUIRY:\n{:#?}", inquiry(&fd));
     // println!("TOC:\n{:#?}", read_toc(&fd));
 
-    let command = ReadCd::<Lba, CdDa>::new(false, 1000.into(), 27u8.into(), Control::default());
+    let command =
+        ReadCd::<Lba, Mode2Form1, SyncAllHeadersUserDataEdcEcc, BlockC2Pointers, RawPw>::new(
+            252000.into(),
+            5u8.into(),
+            Control::default(),
+        );
     let expected_bytes: usize = command.response_len().try_into().unwrap();
-    let mut buf = vec![0u8; expected_bytes];
+    let mut buf = vec![0u8; 16384];
 
     let received = run_sgio(
         fd.as_raw_fd(),
@@ -95,12 +99,12 @@ fn main() -> io::Result<()> {
     .unwrap();
 
     println!("Received: {received} bytes");
-    let mut res = command.parse(&buf).unwrap();
+    let mut res = command.parse(&buf[0..(expected_bytes + 100)]).unwrap();
     println!("Sectors: {}", res.len());
     println!();
-    let sector1 = res.next().unwrap();
-    println!("Sector 1:");
-    println!("User Data: {} bytes", sector1.user_data().len());
+    let sector = res.next().unwrap();
+    println!("Last Sector:");
+    print!("{:?}", sector);
 
     Ok(())
 }

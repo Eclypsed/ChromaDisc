@@ -1,11 +1,12 @@
-use std::fmt;
+use core::fmt;
 
-use derive_more::{Display, Into};
+use derive_more::Into;
 use thiserror::Error;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
 macro_rules! bounded_u8 {
     ($name:ident, $err:ident, $max:literal) => {
-        #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Into)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Into)]
         pub struct $name(u8);
 
         #[derive(Debug, Error)]
@@ -33,6 +34,12 @@ macro_rules! bounded_u8 {
             type Error = $err;
             fn try_from(value: u8) -> Result<Self, Self::Error> {
                 Self::new(value)
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", self.0)
             }
         }
     };
@@ -108,11 +115,24 @@ impl fmt::Display for Msf {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct UnvalidatedMsf(u8, u8, u8);
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned,
+)]
+#[repr(transparent)]
+pub struct UnvalidatedMsf([u8; 3]);
 
 impl UnvalidatedMsf {
     pub fn new(minute: u8, second: u8, frame: u8) -> Self {
-        Self(minute, second, frame)
+        Self([minute, second, frame])
+    }
+}
+
+impl fmt::Debug for UnvalidatedMsf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "UnvalidatedMsf({:#02X},{:#02X},{:#02X})",
+            self.0[0], self.0[1], self.0[2]
+        )
     }
 }

@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use arbitrary_int::u4;
 use derive_where::derive_where;
 use thiserror::Error;
@@ -5,8 +6,10 @@ use thiserror::Error;
 use super::{AddressingMode, ReadTocPmaAtip, ReadTocPmaAtipOpCode};
 use crate::{
     core::{addressing::Lba, ReadCommand, TruncationError},
-    mmc::msf::{Msf, UnvalidatedMsf},
-    rainbow_books::q_subcode,
+    mmc::device_models::cd::{
+        addressing::{Msf, UnvalidatedMsf},
+        q_subcode,
+    },
 };
 
 const FORMATTED_TOC_MIN_BYTES: usize = 4;

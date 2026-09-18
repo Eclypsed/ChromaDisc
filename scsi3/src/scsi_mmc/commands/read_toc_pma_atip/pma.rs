@@ -1,10 +1,11 @@
+use alloc::vec::Vec;
 use arbitrary_int::u4;
 use thiserror::Error;
 
 use super::{ReadTocPmaAtip, ReadTocPmaAtipOpCode};
 use crate::{
     core::{ReadCommand, TruncationError},
-    rainbow_books::q_subcode,
+    mmc::device_models::cd::q_subcode,
 };
 
 const PMA_MIN_BYTES: usize = 4;

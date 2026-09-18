@@ -22,7 +22,7 @@ pub trait OpCodeDef: private::Sealed {
     /// ```
     /// See: [SAM-6]
     const OP_CODE: u8;
-    type Cdb: AsMut<[u8]>;
+    type Cdb: AsMut<[u8]> + ?Sized;
 }
 
 macro_rules! impl_op_code_def {
@@ -80,13 +80,13 @@ impl_op_code_def!(
 impl private::Sealed for OpCode<0x7E> {}
 impl OpCodeDef for OpCode<0x7E> {
     const OP_CODE: u8 = 0x7E;
-    type Cdb = Box<[u8]>;
+    type Cdb = [u8];
 }
 
 impl private::Sealed for OpCode<0x7F> {}
 impl OpCodeDef for OpCode<0x7F> {
     const OP_CODE: u8 = 0x7F;
-    type Cdb = Box<[u8]>;
+    type Cdb = [u8];
 }
 
 pub trait Command<O: OpCodeDef> {

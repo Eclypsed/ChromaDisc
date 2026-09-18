@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use arbitrary_int::{u2, u3, u4, u5};
 use bitfield::{Bits, BitsEnum, BitsRepr};
 use thiserror::Error;

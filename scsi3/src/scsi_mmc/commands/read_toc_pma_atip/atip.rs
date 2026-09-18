@@ -3,8 +3,10 @@ use thiserror::Error;
 
 use crate::{
     core::{ReadCommand, TruncationError},
-    mmc::msf::UnvalidatedMsf,
-    rainbow_books::atip::{cdr, cdrw, CdRSubtype, DiscApplicationCode},
+    mmc::device_models::cd::{
+        addressing::UnvalidatedMsf,
+        atip::{cdr, cdrw, CdRSubtype, DiscApplicationCode},
+    },
 };
 
 use super::{ReadTocPmaAtip, ReadTocPmaAtipOpCode};
