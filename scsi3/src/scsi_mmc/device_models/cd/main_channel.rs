@@ -2,7 +2,7 @@ use core::fmt;
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-use crate::mmc::device_models::cd::addressing::UnvalidatedMsf;
+use crate::mmc::device_models::cd::addressing::UnvalidatedBcdMsf;
 
 pub const SYNC_PATTERN: [u8; 12] = [
     0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00,
@@ -14,8 +14,7 @@ pub const SYNC_PATTERN: [u8; 12] = [
 #[repr(C)]
 pub struct SectorHeader {
     // TODO: Turn into `Raw<Msf>`, delete `UnvalidatedMsf`. Probably implement `Raw` in scsi-core.
-    // TODO: Determine if this comes back in BCD or binary
-    pub address: UnvalidatedMsf,
+    pub address: UnvalidatedBcdMsf,
     pub mode: ModeByte,
 }
 
@@ -211,4 +210,64 @@ pub mod mode2 {
     pub mod form1 {}
 
     pub mod form2 {}
+}
+
+/// `0xD801_8001`, reflected form of `0x8001801B`.
+const POLY: u32 = {
+    const fn mul(a: u64, b: u64) -> u64 {
+        let mut r = 0;
+        let mut i = 0;
+        while i < 64 {
+            if a >> i & 1 == 1 {
+                r ^= b << i;
+            }
+            i += 1;
+        }
+        r
+    }
+    // (x^16 + x^15 + x^2 + 1) * (x^16 + x^2 + x + 1) over GF(2)
+    (mul(
+        (1 << 16) | (1 << 15) | (1 << 2) | 1,
+        (1 << 16) | (1 << 2) | (1 << 1) | 1,
+    ) as u32)
+        .reverse_bits()
+};
+
+const _: () = assert!(POLY == 0xD801_8001);
+
+const TABLE: [u32; 256] = {
+    let mut table = [0u32; 256];
+    let mut i = 0usize;
+    while i < 256 {
+        let mut crc = i as u32;
+        let mut bit = 0;
+        while bit < 8 {
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ POLY
+            } else {
+                crc >> 1
+            };
+            bit += 1;
+        }
+        table[i] = crc;
+        i += 1;
+    }
+    table
+};
+
+/// EDC over `bytes`.
+///
+/// Note `TABLE[0] == 0`, so with a zero initial value a *leading* run of zero
+/// bytes contributes nothing. Excluding a prefix and zero-filling it therefore
+/// give the same answer -- which is why ECMA-130 can define the Mode 2 input as
+/// a byte range while MMC-6 describes it as "does not cover the block header".
+/// The equivalence does not extend to zeros anywhere but the start.
+pub const fn edc(bytes: &[u8]) -> u32 {
+    let mut crc = 0u32;
+    let mut i = 0;
+    while i < bytes.len() {
+        crc = TABLE[((crc ^ bytes[i] as u32) & 0xFF) as usize] ^ (crc >> 8);
+        i += 1;
+    }
+    crc
 }

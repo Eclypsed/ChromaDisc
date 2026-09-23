@@ -1,4 +1,7 @@
-use core::{mem::size_of, num::NonZeroU32};
+use core::{
+    mem::{offset_of, size_of},
+    num::NonZeroU32,
+};
 
 use arbitrary_int::u3;
 use derive_where::derive_where;
@@ -7,6 +10,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, LittleEndian, Unali
 use crate::{
     core::util::{Absent, Presence, Present},
     mmc::device_models::cd::main_channel::{
+        edc,
         mode2::{Mode2Form, Mode2FormedSubHeader},
         DataMode, SectorHeader, SYNC_PATTERN,
     },
@@ -25,7 +29,7 @@ mod sealed {
     pub trait SelectionOfSeal<M: super::SectorMode> {}
 }
 
-pub trait SectorMode: sealed::SectorModeSeal + Sized {
+pub trait SectorMode: sealed::SectorModeSeal + Sized + 'static {
     const EXPECTED_SECTOR_TYPE: u3;
 
     // Leaving these public for now. May want to hide them as part of `SectorModeSeal` in the future
@@ -62,7 +66,7 @@ pub trait Selection: sealed::SelectionSeal {}
     label = "these subsections are non-contiguous, or absent from this mode",
     note = "e.g. SyncHeaderUserData (B0h) skips the Mode 2 sub-header"
 )]
-pub trait SelectionOf<M: SectorMode>: Selection + sealed::SelectionOfSeal<M> {}
+pub trait SelectionOf<M: SectorMode>: Selection + sealed::SelectionOfSeal<M> + 'static {}
 
 #[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned)]
 #[derive_where(Debug, Clone, Copy, PartialEq, Eq;
@@ -166,6 +170,61 @@ impl<M: SectorMode, L: SelectionOf<M, EdcEcc = Present>> MainChannel<M, L> {
     #[inline]
     pub const fn edc_ecc_mut(&mut self) -> &mut M::EdcEcc {
         &mut self.edc_ecc
+    }
+}
+
+impl<L: SelectionOf<Mode1, Sync = Present, Header = Present, UserData = Present>>
+    MainChannel<Mode1, L>
+{
+    #[inline]
+    pub fn calculate_edc(&self) -> u32 {
+        edc(&self.as_bytes()[(offset_of!(Self, sync))..(offset_of!(Self, edc_ecc))])
+    }
+}
+
+impl<
+        L: SelectionOf<Mode1, Sync = Present, Header = Present, UserData = Present, EdcEcc = Present>,
+    > MainChannel<Mode1, L>
+{
+    #[inline]
+    pub fn edc_matches(&self) -> bool {
+        self.calculate_edc() == self.edc_ecc().edc.get()
+    }
+}
+
+impl<L: SelectionOf<Mode2Form1, SubHeader = Present, UserData = Present>>
+    MainChannel<Mode2Form1, L>
+{
+    #[inline]
+    pub fn calculate_edc(&self) -> u32 {
+        edc(&self.as_bytes()[(offset_of!(Self, sub_header))..(offset_of!(Self, edc_ecc))])
+    }
+}
+
+impl<L: SelectionOf<Mode2Form1, SubHeader = Present, UserData = Present, EdcEcc = Present>>
+    MainChannel<Mode2Form1, L>
+{
+    #[inline]
+    pub fn edc_matches(&self) -> bool {
+        self.calculate_edc() == self.edc_ecc().edc.get()
+    }
+}
+
+impl<L: SelectionOf<Mode2Form2, SubHeader = Present, UserData = Present>>
+    MainChannel<Mode2Form2, L>
+{
+    #[inline]
+    pub fn calculate_edc(&self) -> u32 {
+        edc(&self.as_bytes()[(offset_of!(Self, sub_header))..(offset_of!(Self, edc_ecc))])
+    }
+}
+
+impl<L: SelectionOf<Mode2Form2, SubHeader = Present, UserData = Present, EdcEcc = Present>>
+    MainChannel<Mode2Form2, L>
+{
+    #[inline]
+    pub fn edc_matches(&self) -> Option<bool> {
+        Some(self.calculate_edc() == self.edc_ecc().edc()?.into())
     }
 }
 
@@ -381,6 +440,8 @@ macro_rules! impl_selection_of {
     )*};
 }
 
+const SECTOR_SIZE: usize = 2352;
+
 pub struct CdDa;
 impl sealed::SectorModeSeal for CdDa {}
 impl SectorMode for CdDa {
@@ -388,7 +449,7 @@ impl SectorMode for CdDa {
     type Sync = ();
     type Header = ();
     type SubHeader = ();
-    type UserData = [u8; 2352];
+    type UserData = [u8; SECTOR_SIZE];
     type EdcEcc = ();
 
     type Full = UserData;
@@ -396,7 +457,7 @@ impl SectorMode for CdDa {
 
 impl_selection_of!(CdDa, [NoFields, UserData]);
 
-const _: () = assert!(size_of::<Sector<CdDa>>() == 2352);
+const _: () = assert!(size_of::<Sector<CdDa>>() == SECTOR_SIZE);
 
 pub struct Mode1;
 impl sealed::SectorModeSeal for Mode1 {}
@@ -431,7 +492,7 @@ impl_selection_of!(
     ]
 );
 
-const _: () = assert!(size_of::<Sector<Mode1>>() == 2352);
+const _: () = assert!(size_of::<Sector<Mode1>>() == SECTOR_SIZE);
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned,
@@ -475,7 +536,7 @@ impl_selection_of!(
     ]
 );
 
-const _: () = assert!(size_of::<Sector<Mode2Formless>>() == 2352);
+const _: () = assert!(size_of::<Sector<Mode2Formless>>() == SECTOR_SIZE);
 
 pub struct Mode2Form1;
 impl sealed::SectorModeSeal for Mode2Form1 {}
@@ -519,7 +580,7 @@ impl_selection_of!(
     ]
 );
 
-const _: () = assert!(size_of::<Sector<Mode2Form1>>() == 2352);
+const _: () = assert!(size_of::<Sector<Mode2Form1>>() == SECTOR_SIZE);
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned,
@@ -575,7 +636,7 @@ impl_selection_of!(
     ]
 );
 
-const _: () = assert!(size_of::<Sector<Mode2Form2>>() == 2352);
+const _: () = assert!(size_of::<Sector<Mode2Form2>>() == SECTOR_SIZE);
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned,

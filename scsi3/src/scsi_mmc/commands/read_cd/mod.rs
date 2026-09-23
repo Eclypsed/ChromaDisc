@@ -1,4 +1,4 @@
-use core::marker::PhantomData;
+use core::{convert::Infallible, marker::PhantomData};
 
 use crate::{
     core::{
@@ -10,66 +10,39 @@ use crate::{
 };
 use arbitrary_int::u24;
 use derive_where::derive_where;
-use thiserror::Error;
 use zerocopy::{CastError, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
 pub mod c2;
 pub mod main_channel;
 pub mod sub_channel;
 
-mod private {
-    use super::*;
-
-    pub trait SectorRange {
-        fn sector_count(&self) -> u32;
-    }
-
-    pub trait AddressingModeSeal {
-        type AddressingParams: SectorRange;
-    }
-
-    impl AddressingModeSeal for Lba {
-        type AddressingParams = LbaAddressingParams;
-    }
-
-    impl AddressingModeSeal for Msf {
-        type AddressingParams = Span<Msf>;
-    }
-
-    pub struct LbaAddressingParams {
-        pub starting_lba: Lba,
-        pub transfer_length: u24,
-    }
-
-    impl SectorRange for LbaAddressingParams {
-        fn sector_count(&self) -> u32 {
-            self.transfer_length.into()
-        }
-    }
-
-    impl SectorRange for Span<Msf> {
-        fn sector_count(&self) -> u32 {
-            self.end().total_frames() - self.start().total_frames()
-        }
-    }
-}
-
-pub trait ReadCdAddress: private::AddressingModeSeal {}
-impl ReadCdAddress for Lba {}
-impl ReadCdAddress for Msf {}
-
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReadCd<
-    A: ReadCdAddress,
     M: main_channel::SectorMode,
     L: main_channel::SelectionOf<M>,
     C: c2::C2ErrorInfo = c2::NoC2,
     S: sub_channel::SubChannelSelection = sub_channel::NoSubChannel,
 > {
     digital_audio_play: bool,
-    // Interestingly, in the LBA version of this command, byte 1 bit 0 is an obsolete RELADDR flag.
-    // However, every reference going back to MMC-1 says this flag should just be 0, so I don't
+    // Interestingly, byte 1 bit 0 is an obsolete RELADDR flag. However, every
+    // reference going back to MMC-1 says this flag should just be 0, so I don't
     // know where it came from but I'm choosing to omit it.
-    addressing_params: A::AddressingParams,
+    starting_lba: Lba,
+    transfer_length: u24,
+    control: Control,
+    #[allow(clippy::type_complexity)]
+    _marker: PhantomData<fn() -> (M, L, C, S)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadCdMsf<
+    M: main_channel::SectorMode,
+    L: main_channel::SelectionOf<M>,
+    C: c2::C2ErrorInfo = c2::NoC2,
+    S: sub_channel::SubChannelSelection = sub_channel::NoSubChannel,
+> {
+    digital_audio_play: bool,
+    msf_range: Span<Msf>,
     control: Control,
     #[allow(clippy::type_complexity)]
     _marker: PhantomData<fn() -> (M, L, C, S)>,
@@ -83,11 +56,11 @@ impl<
         L: main_channel::SelectionOf<M>,
         C: c2::C2ErrorInfo,
         S: sub_channel::SubChannelSelection,
-    > Command<ReadCdOpcode> for ReadCd<Lba, M, L, C, S>
+    > Command<ReadCdOpcode> for ReadCd<M, L, C, S>
 {
     fn as_cdb(&self) -> <ReadCdOpcode as OpCodeDef>::Cdb {
-        let lba_bytes: [u8; 4] = i32::from(self.addressing_params.starting_lba).to_be_bytes();
-        let transfer_bytes: [u8; 3] = self.addressing_params.transfer_length.to_be_bytes();
+        let lba_bytes: [u8; 4] = i32::from(self.starting_lba).to_be_bytes();
+        let transfer_bytes: [u8; 3] = self.transfer_length.to_be_bytes();
 
         [
             ReadCdOpcode::OP_CODE,
@@ -111,19 +84,19 @@ impl<
         L: main_channel::SelectionOf<M>,
         C: c2::C2ErrorInfo,
         S: sub_channel::SubChannelSelection,
-    > Command<ReadCdMsfOpcode> for ReadCd<Msf, M, L, C, S>
+    > Command<ReadCdMsfOpcode> for ReadCdMsf<M, L, C, S>
 {
     fn as_cdb(&self) -> <ReadCdMsfOpcode as OpCodeDef>::Cdb {
         [
             ReadCdMsfOpcode::OP_CODE,
             (M::EXPECTED_SECTOR_TYPE.value() << 2) | ((self.digital_audio_play as u8) << 1),
             0,
-            self.addressing_params.start().minute().into(),
-            self.addressing_params.start().second().into(),
-            self.addressing_params.start().frame().into(),
-            self.addressing_params.end().minute().into(),
-            self.addressing_params.end().second().into(),
-            self.addressing_params.end().frame().into(),
+            self.msf_range.start().minute().into(),
+            self.msf_range.start().second().into(),
+            self.msf_range.start().frame().into(),
+            self.msf_range.end().minute().into(),
+            self.msf_range.end().second().into(),
+            self.msf_range.end().frame().into(),
             (main_channel::MainChannel::<M, L>::SELECTION_VALUE) | (C::C2_SELECTION.value() << 1),
             (S::SUB_CHANNEL_SELECTION.value()),
             self.control.into(),
@@ -137,7 +110,7 @@ macro_rules! impl_read_cd_constructor {
                 L: main_channel::SelectionOf<$sector_mode>,
                 C: c2::C2ErrorInfo,
                 S: sub_channel::SubChannelSelection,
-            > ReadCd<Lba, $sector_mode, L, C, S>
+            > ReadCd<$sector_mode, L, C, S>
         {
             pub fn new(
                 $($dap_param)*
@@ -147,10 +120,8 @@ macro_rules! impl_read_cd_constructor {
             ) -> Self {
                 Self {
                     digital_audio_play: $dap_value,
-                    addressing_params: private::LbaAddressingParams {
-                        starting_lba,
-                        transfer_length,
-                    },
+                    starting_lba,
+                    transfer_length,
                     control,
                     _marker: PhantomData,
                 }
@@ -161,12 +132,12 @@ macro_rules! impl_read_cd_constructor {
                 L: main_channel::SelectionOf<$sector_mode>,
                 C: c2::C2ErrorInfo,
                 S: sub_channel::SubChannelSelection,
-            > ReadCd<Msf, $sector_mode, L, C, S>
+            > ReadCdMsf<$sector_mode, L, C, S>
         {
             pub fn new($($dap_param)* msf_range: Span<Msf>, control: Control) -> Self {
                 Self {
                     digital_audio_play: $dap_value,
-                    addressing_params: msf_range,
+                    msf_range,
                     control,
                     _marker: PhantomData,
                 }
@@ -270,104 +241,71 @@ impl<
     }
 }
 
-#[derive(Debug, Error)]
-pub enum TransfersError {
-    #[error("Attempted to parse zero-sized transfer")]
-    ZeroSizedTransfer,
-}
-
-#[derive(Debug, Clone)]
-pub struct Transfers<
-    'a,
-    M: main_channel::SectorMode,
-    L: main_channel::SelectionOf<M>,
-    C: c2::C2ErrorInfo,
-    S: sub_channel::SubChannelSelection,
-> {
-    buf: &'a [u8],
-    #[allow(clippy::type_complexity)]
-    _marker: PhantomData<fn() -> (M, L, C, S)>,
-}
-
 impl<
-        'a,
         M: main_channel::SectorMode,
         L: main_channel::SelectionOf<M>,
         C: c2::C2ErrorInfo,
         S: sub_channel::SubChannelSelection,
-    > Transfers<'a, M, L, C, S>
-{
-    pub fn new(buf: &'a [u8]) -> Result<Self, TransfersError> {
-        if size_of::<Transfer<M, L, C, S>>() == 0 {
-            return Err(TransfersError::ZeroSizedTransfer);
-        }
-
-        Ok(Self {
-            buf,
-            _marker: PhantomData,
-        })
-    }
-}
-
-impl<
-        'a,
-        M: main_channel::SectorMode + 'a,
-        L: main_channel::SelectionOf<M> + 'a,
-        C: c2::C2ErrorInfo + 'a,
-        S: sub_channel::SubChannelSelection + 'a,
-    > Iterator for Transfers<'a, M, L, C, S>
-{
-    type Item = &'a Transfer<M, L, C, S>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match Transfer::<M, L, C, S>::ref_from_prefix(self.buf) {
-            Ok((transfer, rest)) => {
-                self.buf = rest;
-                Some(transfer)
-            }
-            Err(CastError::Size(_)) => None,
-            // See https://docs.rs/zerocopy/latest/zerocopy/trait.FromBytes.html#method.ref_from_prefix
-            Err(CastError::Alignment(_)) => unreachable!("Transfer should be `Unaligned`"),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let num_transfers = self.buf.len() / size_of::<Transfer<M, L, C, S>>();
-        (num_transfers, Some(num_transfers))
-    }
-}
-
-impl<
-        'a,
-        M: main_channel::SectorMode + 'a,
-        L: main_channel::SelectionOf<M> + 'a,
-        C: c2::C2ErrorInfo + 'a,
-        S: sub_channel::SubChannelSelection + 'a,
-    > ExactSizeIterator for Transfers<'a, M, L, C, S>
-{
-}
-
-impl<
-        O: OpCodeDef,
-        A: ReadCdAddress,
-        M: main_channel::SectorMode,
-        L: main_channel::SelectionOf<M>,
-        C: c2::C2ErrorInfo,
-        S: sub_channel::SubChannelSelection,
-    > ReadCommand<O> for ReadCd<A, M, L, C, S>
-where
-    ReadCd<A, M, L, C, S>: Command<O>,
+    > ReadCommand<ReadCdOpcode> for ReadCd<M, L, C, S>
 {
     type Len = u64;
-    type Response<'a> = Transfers<'a, M, L, C, S>;
-    type Error = TransfersError;
+    type Response<'a> = (&'a [Transfer<M, L, C, S>], &'a [u8]);
+    type Error = Infallible;
 
     fn response_len(&self) -> Self::Len {
-        (size_of::<Transfer<M, L, C, S>>() as u64)
-            * (private::SectorRange::sector_count(&self.addressing_params) as u64)
+        (size_of::<Transfer<M, L, C, S>>() as u64) * u64::from(self.transfer_length)
     }
 
     fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
-        Transfers::new(buf)
+        const {
+            assert!(
+                size_of::<Transfer<M, L, C, S>>() != 0,
+                "Transfer must not be zero-sized"
+            )
+        };
+
+        match <[Transfer<M, L, C, S>]>::ref_from_prefix_with_elems(
+            buf,
+            buf.len() / size_of::<Transfer<M, L, C, S>>(),
+        ) {
+            Ok(res) => Ok(res),
+            Err(CastError::Size(_)) => unreachable!("`<[Transfer]>` count should be calculated"),
+            Err(CastError::Alignment(_)) => unreachable!("`Transfer` should be `Unaligned`"),
+        }
+    }
+}
+
+impl<
+        M: main_channel::SectorMode,
+        L: main_channel::SelectionOf<M>,
+        C: c2::C2ErrorInfo,
+        S: sub_channel::SubChannelSelection,
+    > ReadCommand<ReadCdMsfOpcode> for ReadCdMsf<M, L, C, S>
+{
+    type Len = u64;
+    type Response<'a> = (&'a [Transfer<M, L, C, S>], &'a [u8]);
+    type Error = Infallible;
+
+    fn response_len(&self) -> Self::Len {
+        (size_of::<Transfer<M, L, C, S>>() as u64)
+            * u64::from(self.msf_range.end().total_frames() - self.msf_range.start().total_frames())
+    }
+
+    fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
+        const {
+            assert!(
+                size_of::<Transfer<M, L, C, S>>() != 0,
+                "Transfer must not be zero-sized"
+            )
+        };
+
+        match <[Transfer<M, L, C, S>]>::ref_from_prefix_with_elems(
+            buf,
+            buf.len() / size_of::<Transfer<M, L, C, S>>(),
+        ) {
+            Ok(res) => Ok(res),
+            Err(CastError::Size(_)) => unreachable!("`<[Transfer]>` count should be calculated"),
+            Err(CastError::Alignment(_)) => unreachable!("`Transfer` should be `Unaligned`"),
+        }
     }
 }

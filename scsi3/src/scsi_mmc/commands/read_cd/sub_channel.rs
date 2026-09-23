@@ -14,7 +14,7 @@ mod private {
     }
 }
 
-pub trait SubChannelSelection: private::SubChannelMarker {}
+pub trait SubChannelSelection: private::SubChannelMarker + 'static {}
 
 pub struct NoSubChannel;
 impl private::SubChannelMarker for NoSubChannel {

@@ -2,10 +2,7 @@ use core::marker::PhantomData;
 
 use arbitrary_int::u4;
 
-use crate::core::addressing::Lba;
-
 use crate::core::{Command, Control, OpCode, OpCodeDef};
-use crate::mmc::device_models::cd::addressing::{Msf, UnvalidatedMsf};
 
 pub mod atip;
 pub mod cd_text;
@@ -15,29 +12,11 @@ pub mod pma;
 pub mod raw_toc;
 
 mod private {
-    pub trait AddressingModeSeal {
-        const MSF: bool;
-        type ResponseAddressType;
-    }
     pub trait ReadTocPmaAtipFormat {
         const MSF: bool;
         const FORMAT: super::u4;
     }
 }
-
-pub trait AddressingMode: private::AddressingModeSeal {}
-
-impl private::AddressingModeSeal for Msf {
-    const MSF: bool = true;
-    type ResponseAddressType = UnvalidatedMsf;
-}
-impl AddressingMode for Msf {}
-
-impl private::AddressingModeSeal for Lba {
-    const MSF: bool = false;
-    type ResponseAddressType = Lba;
-}
-impl AddressingMode for Lba {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ReadTocPmaAtip<R: ReadTocPmaAtipResponse> {
@@ -75,21 +54,21 @@ impl<A: multi_session_info::TrackStartAddress> ReadTocPmaAtipResponse
 
 // Raw TOC
 impl private::ReadTocPmaAtipFormat for raw_toc::RawToc {
-    const MSF: bool = <Msf as private::AddressingModeSeal>::MSF;
+    const MSF: bool = true;
     const FORMAT: u4 = u4::new(0b0010);
 }
 impl ReadTocPmaAtipResponse for raw_toc::RawToc {}
 
 // PMA
 impl private::ReadTocPmaAtipFormat for pma::Pma {
-    const MSF: bool = <Msf as private::AddressingModeSeal>::MSF;
+    const MSF: bool = true;
     const FORMAT: u4 = u4::new(0b0011);
 }
 impl ReadTocPmaAtipResponse for pma::Pma {}
 
 // ATIP
 impl private::ReadTocPmaAtipFormat for atip::Atip {
-    const MSF: bool = <Msf as private::AddressingModeSeal>::MSF;
+    const MSF: bool = true;
     const FORMAT: u4 = u4::new(0b0100);
 }
 impl ReadTocPmaAtipResponse for atip::Atip {}
@@ -98,7 +77,7 @@ impl ReadTocPmaAtipResponse for atip::Atip {}
 // ? [MMC-6] doesn't actually say that the MSF bit for CD-TEXT can't be zero, but all the other
 // ? formats for which the MSF Field is "Ignored by Drive", describe the MSF bit to be set to one.
 impl private::ReadTocPmaAtipFormat for cd_text::CdText {
-    const MSF: bool = <Msf as private::AddressingModeSeal>::MSF;
+    const MSF: bool = true;
     const FORMAT: u4 = u4::new(0b0101);
 }
 impl ReadTocPmaAtipResponse for cd_text::CdText {}

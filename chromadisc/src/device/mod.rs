@@ -40,7 +40,7 @@ impl Drive {
     pub fn get_fd(&self) -> io::Result<OwnedFd> {
         Ok(open(
             self.devnode.as_str(),
-            OFlag::O_RDONLY | OFlag::O_NONBLOCK,
+            OFlag::O_RDWR | OFlag::O_NONBLOCK,
             Mode::empty(),
         )?)
     }

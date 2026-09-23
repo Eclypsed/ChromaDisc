@@ -95,7 +95,7 @@ pub trait Command<O: OpCodeDef> {
 
 pub trait ReadCommand<O: OpCodeDef>: Command<O> {
     type Len: UnsignedInteger;
-    type Response<'a>;
+    type Response<'a>; // where Self: 'a <- Maybe do this in the future
     type Error;
 
     /// The maximum number of bytes the device may transfer for this command

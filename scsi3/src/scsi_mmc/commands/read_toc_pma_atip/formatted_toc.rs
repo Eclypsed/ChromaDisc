@@ -1,9 +1,12 @@
+use core::marker::PhantomData;
+
 use alloc::vec::Vec;
 use arbitrary_int::u4;
 use derive_where::derive_where;
 use thiserror::Error;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-use super::{AddressingMode, ReadTocPmaAtip, ReadTocPmaAtipOpCode};
+use super::{ReadTocPmaAtip, ReadTocPmaAtipOpCode};
 use crate::{
     core::{addressing::Lba, ReadCommand, TruncationError},
     mmc::device_models::cd::{
@@ -16,26 +19,36 @@ const FORMATTED_TOC_MIN_BYTES: usize = 4;
 const TRACK_DESCRIPTOR_SIZE: usize = 8;
 
 mod private {
-    pub trait ReadAddress: super::AddressingMode {
+    use super::*;
+
+    pub trait AddressingMode {
+        const MSF: bool;
+        type ResponseAddressType: FromBytes + IntoBytes + KnownLayout + Immutable;
         fn read_track_start_address(bytes: [u8; 4]) -> Self::ResponseAddressType;
     }
 }
 
-pub trait TrackStartAddress: private::ReadAddress {}
+pub trait TrackStartAddress: private::AddressingMode {}
 
-impl private::ReadAddress for Msf {
-    fn read_track_start_address(bytes: [u8; 4]) -> Self::ResponseAddressType {
-        UnvalidatedMsf::new(bytes[1], bytes[2], bytes[3])
-    }
-}
-impl TrackStartAddress for Msf {}
-
-impl private::ReadAddress for Lba {
+impl private::AddressingMode for Lba {
+    const MSF: bool = false;
+    type ResponseAddressType = Lba;
     fn read_track_start_address(bytes: [u8; 4]) -> Self::ResponseAddressType {
         i32::from_be_bytes(bytes).into()
     }
 }
 impl TrackStartAddress for Lba {}
+
+impl private::AddressingMode for Msf {
+    const MSF: bool = true;
+    // CONFIRM: My drive returns the addresses as binary, but I don't think the spec specifies
+    // if it should be BCD or binary.
+    type ResponseAddressType = UnvalidatedMsf;
+    fn read_track_start_address(bytes: [u8; 4]) -> Self::ResponseAddressType {
+        UnvalidatedMsf::new(bytes[1], bytes[2], bytes[3])
+    }
+}
+impl TrackStartAddress for Msf {}
 
 #[derive(Debug, Error)]
 pub enum FormattedTocError {

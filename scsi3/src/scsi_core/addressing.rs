@@ -1,12 +1,29 @@
 use core::ops::{Add, AddAssign, Bound, RangeBounds, Sub, SubAssign};
 
 use derive_more::{Display, From, Into};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// Newtype representing a Logical Block Address (LBA)
 ///
 /// The LBA is the number that a Host uses to reference Logical Blocks on a block storage device.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Display, PartialEq, Hash, Eq, PartialOrd, Ord, From, Into)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Display,
+    PartialEq,
+    Hash,
+    Eq,
+    PartialOrd,
+    Ord,
+    From,
+    Into,
+    FromBytes,
+    IntoBytes,
+    KnownLayout,
+    Immutable,
+)]
 pub struct Lba(i32);
 
 // macro_rules! lba {
@@ -61,7 +78,7 @@ impl SubAssign<i32> for Lba {
 }
 
 // This might belong somewhere else
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span<T> {
     start: T,
     end: T,

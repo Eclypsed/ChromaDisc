@@ -13,11 +13,11 @@ impl Bit for u8 {
     }
 }
 
-pub trait Wire: FromBytes + IntoBytes + Immutable + KnownLayout + Unaligned {}
-impl<T> Wire for T where T: FromBytes + IntoBytes + Immutable + KnownLayout + Unaligned {}
+pub trait Zc: FromBytes + IntoBytes + Immutable + KnownLayout + Unaligned {}
+impl<T> Zc for T where T: FromBytes + IntoBytes + Immutable + KnownLayout + Unaligned {}
 
 pub trait Presence {
-    type Output<T: Wire>: Wire;
+    type Output<T: Zc>: Zc;
     const PRESENT: bool;
 }
 
@@ -25,11 +25,35 @@ pub struct Present;
 pub struct Absent;
 
 impl Presence for Present {
-    type Output<T: Wire> = T;
+    type Output<T: Zc> = T;
     const PRESENT: bool = true;
 }
 
 impl Presence for Absent {
-    type Output<T: Wire> = ();
+    type Output<T: Zc> = ();
     const PRESENT: bool = false;
+}
+
+pub trait BytesRepr: Sized {
+    type Bytes: Zc;
+    type Error;
+
+    fn from_bytes(bytes: Self::Bytes) -> Result<Self, Self::Error>;
+    fn to_bytes(&self) -> Self::Bytes;
+}
+
+#[repr(transparent)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout, Unaligned)]
+pub struct Bytes<T: BytesRepr>(T::Bytes);
+
+impl<T: BytesRepr> Bytes<T> {
+    pub fn get(self) -> Result<T, T::Error> {
+        T::from_bytes(self.0)
+    }
+}
+
+impl<T: BytesRepr> From<T> for Bytes<T> {
+    fn from(value: T) -> Self {
+        Bytes(value.to_bytes())
+    }
 }

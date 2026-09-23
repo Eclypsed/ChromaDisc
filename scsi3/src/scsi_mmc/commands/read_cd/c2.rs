@@ -12,7 +12,7 @@ mod private {
     }
 }
 
-pub trait C2ErrorInfo: private::C2Marker {}
+pub trait C2ErrorInfo: private::C2Marker + 'static {}
 
 pub struct NoC2;
 impl private::C2Marker for NoC2 {
