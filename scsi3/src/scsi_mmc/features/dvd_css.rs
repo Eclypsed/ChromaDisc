@@ -1,12 +1,22 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum DvdCssDescriptor {
-    #[deku(id = "0b0000")]
-    V0 {
-        #[deku(pad_bytes_before = "3")]
-        css_version: u8,
-    },
+/// DVD CSS (0106h): the ability to perform DVD CSS/CPPM authentication and RPC.
+///
+/// Laid out as version 0.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct DvdCss {
+    _bytes4_6: [u8; 3],
+    css_version: u8,
 }
+
+impl DvdCss {
+    #[inline]
+    pub const fn css_version(&self) -> u8 {
+        self.css_version
+    }
+}
+
+super::debug_fields!(DvdCss { css_version });

@@ -1,12 +1,24 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum DvdCssManagedRecordingDescriptor {
-    #[deku(id = "0b0000")]
-    V0 {
-        #[deku(pad_bits_after = "3")]
-        maximum_number_of_scramble_extent_information_entries: u8,
-    },
+/// DVD CSS Managed Recording (010Eh): the ability to perform DVD CSS managed recording.
+///
+/// Laid out as version 0.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct DvdCssManagedRecording {
+    maximum_number_of_scramble_extent_information_entries: u8,
+    _bytes5_7: [u8; 3],
 }
+
+impl DvdCssManagedRecording {
+    #[inline]
+    pub const fn maximum_number_of_scramble_extent_information_entries(&self) -> u8 {
+        self.maximum_number_of_scramble_extent_information_entries
+    }
+}
+
+super::debug_fields!(DvdCssManagedRecording {
+    maximum_number_of_scramble_extent_information_entries
+});

@@ -4,13 +4,15 @@ use crate::{
     core::{
         addressing::{Lba, Span},
         util::{Presence, Present},
-        Command, Control, OpCode, OpCodeDef, ReadCommand,
+        Command, Control, OpCode, OpCodeDef, ReadCommand, ZcReadCommand,
     },
     mmc::device_models::cd::addressing::Msf,
 };
 use arbitrary_int::u24;
 use derive_where::derive_where;
-use zerocopy::{CastError, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
+use zerocopy::{
+    CastError, FromBytes, Immutable, IntoBytes, KnownLayout, Ref, SplitByteSlice, Unaligned,
+};
 
 pub mod c2;
 pub mod main_channel;
@@ -257,17 +259,26 @@ impl<
     }
 
     fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
-        const {
-            assert!(
-                size_of::<Transfer<M, L, C, S>>() != 0,
-                "Transfer must not be zero-sized"
-            )
-        };
+        match <[Transfer<M, L, C, S>]>::ref_from_prefix(buf) {
+            Ok(res) => Ok(res),
+            Err(CastError::Size(_)) => unreachable!("`<[Transfer]>` count should be calculated"),
+            Err(CastError::Alignment(_)) => unreachable!("`Transfer` should be `Unaligned`"),
+        }
+    }
+}
 
-        match <[Transfer<M, L, C, S>]>::ref_from_prefix_with_elems(
-            buf,
-            buf.len() / size_of::<Transfer<M, L, C, S>>(),
-        ) {
+impl<
+        M: main_channel::SectorMode,
+        L: main_channel::SelectionOf<M>,
+        C: c2::C2ErrorInfo,
+        S: sub_channel::SubChannelSelection,
+    > ZcReadCommand<ReadCdOpcode> for ReadCd<M, L, C, S>
+{
+    type Response<B: SplitByteSlice> = (Ref<B, [Transfer<M, L, C, S>]>, B);
+    type Error = Infallible;
+
+    fn parse<B: SplitByteSlice>(&self, buf: B) -> Result<Self::Response<B>, Self::Error> {
+        match Ref::<B, [Transfer<M, L, C, S>]>::from_prefix(buf) {
             Ok(res) => Ok(res),
             Err(CastError::Size(_)) => unreachable!("`<[Transfer]>` count should be calculated"),
             Err(CastError::Alignment(_)) => unreachable!("`Transfer` should be `Unaligned`"),
@@ -292,17 +303,26 @@ impl<
     }
 
     fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
-        const {
-            assert!(
-                size_of::<Transfer<M, L, C, S>>() != 0,
-                "Transfer must not be zero-sized"
-            )
-        };
+        match <[Transfer<M, L, C, S>]>::ref_from_prefix(buf) {
+            Ok(res) => Ok(res),
+            Err(CastError::Size(_)) => unreachable!("`<[Transfer]>` count should be calculated"),
+            Err(CastError::Alignment(_)) => unreachable!("`Transfer` should be `Unaligned`"),
+        }
+    }
+}
 
-        match <[Transfer<M, L, C, S>]>::ref_from_prefix_with_elems(
-            buf,
-            buf.len() / size_of::<Transfer<M, L, C, S>>(),
-        ) {
+impl<
+        M: main_channel::SectorMode,
+        L: main_channel::SelectionOf<M>,
+        C: c2::C2ErrorInfo,
+        S: sub_channel::SubChannelSelection,
+    > ZcReadCommand<ReadCdMsfOpcode> for ReadCdMsf<M, L, C, S>
+{
+    type Response<B: SplitByteSlice> = (Ref<B, [Transfer<M, L, C, S>]>, B);
+    type Error = Infallible;
+
+    fn parse<B: SplitByteSlice>(&self, buf: B) -> Result<Self::Response<B>, Self::Error> {
+        match Ref::<B, [Transfer<M, L, C, S>]>::from_prefix(buf) {
             Ok(res) => Ok(res),
             Err(CastError::Size(_)) => unreachable!("`<[Transfer]>` count should be calculated"),
             Err(CastError::Alignment(_)) => unreachable!("`Transfer` should be `Unaligned`"),

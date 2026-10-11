@@ -1,21 +1,33 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum MrwDescriptor {
-    #[deku(id = "0b0000")]
-    V0 {
-        #[deku(pad_bits_before = "7", bits = 1, pad_bytes_after = "3")]
-        write: bool,
-    },
-    #[deku(id = "0b0001")]
-    V1 {
-        #[deku(pad_bits_before = "5", bits = 1)]
-        dvd_plus_write: bool,
-        #[deku(bits = 1)]
-        dvd_plus_read: bool,
-        #[deku(bits = 1, pad_bytes_after = "3")]
-        cd_write: bool,
-    },
+/// MRW (0028h): the ability to recognize and read and optionally write MRW formatted media.
+///
+/// Laid out as version 1.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct Mrw {
+    byte4: u8,
+    _bytes5_7: [u8; 3],
 }
+
+impl Mrw {
+    super::bit!(
+        /// Since version 1.
+        #[doc(alias = "DVD+Write")]
+        dvd_plus_write: byte4[2]
+    );
+    super::bit!(
+        /// Since version 1.
+        #[doc(alias = "DVD+Read")]
+        dvd_plus_read: byte4[1]
+    );
+    super::bit!(#[doc(alias = "Write")] cd_write: byte4[0]);
+}
+
+super::debug_fields!(Mrw {
+    dvd_plus_write,
+    dvd_plus_read,
+    cd_write
+});

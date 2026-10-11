@@ -1,16 +1,33 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum TimeoutDescriptor {
-    #[deku(id = "0b0000")]
-    V0,
-    #[deku(id = "0b0001")]
-    V1 {
-        #[deku(pad_bits_before = "7", bits = 1)]
-        group3: bool,
-        #[deku(pad_bytes_before = "1", endian = "big")]
-        unit_length: u16,
-    },
+/// Timeout (0105h): the ability to respond to all commands within a specific time.
+///
+/// Laid out as version 1. Version 0 has no Feature Dependent Data.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct Timeout {
+    byte4: u8,
+    _byte5: u8,
+    unit_length: U16<BigEndian>,
 }
+
+impl Timeout {
+    super::bit!(
+        /// Since version 1.
+        #[doc(alias = "Group 3")]
+        group3: byte4[0]
+    );
+
+    /// Since version 1.
+    #[inline]
+    pub const fn unit_length(&self) -> u16 {
+        self.unit_length.get()
+    }
+}
+
+super::debug_fields!(Timeout {
+    group3,
+    unit_length
+});

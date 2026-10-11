@@ -1,23 +1,29 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum DvdPlusRwDescriptor {
-    #[deku(id = "0b0000")]
-    V0 {
-        #[deku(pad_bits_before = "7", bits = 1)]
-        write: bool,
-        #[deku(pad_bits_before = "7", bits = 1, pad_bytes_after = "2")]
-        close_only: bool,
-    },
-    #[deku(id = "0b0001")]
-    V1 {
-        #[deku(pad_bits_before = "7", bits = 1)]
-        write: bool,
-        #[deku(pad_bits_before = "6", bits = 1)]
-        quick_start: bool,
-        #[deku(bits = 1, pad_bytes_after = "2")]
-        close_only: bool,
-    },
+/// DVD+RW (002Ah): the ability to recognize, read and optionally write DVD+RW media.
+///
+/// Laid out as version 1.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct DvdPlusRw {
+    byte4: u8,
+    byte5: u8,
+    _bytes6_7: [u8; 2],
 }
+
+impl DvdPlusRw {
+    super::bit!(write: byte4[0]);
+    super::bit!(
+        /// Since version 1.
+        quick_start: byte5[1]
+    );
+    super::bit!(close_only: byte5[0]);
+}
+
+super::debug_fields!(DvdPlusRw {
+    write,
+    quick_start,
+    close_only
+});

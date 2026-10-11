@@ -1,16 +1,26 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum DvdPlusRWDualLayerDescriptor {
-    #[deku(id = "0b0000")]
-    V0 {
-        #[deku(pad_bits_before = "7", bits = 1)]
-        write: bool,
-        #[deku(pad_bits_before = "6", bits = 1)]
-        quick_start: bool,
-        #[deku(bits = 1, pad_bytes_after = "2")]
-        close_only: bool,
-    },
+/// DVD+RW Dual Layer (003Ah): the ability to read DVD+RW Dual Layer recorded media formats.
+///
+/// Laid out as version 0.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct DvdPlusRwDualLayer {
+    byte4: u8,
+    byte5: u8,
+    _bytes6_7: [u8; 2],
 }
+
+impl DvdPlusRwDualLayer {
+    super::bit!(write: byte4[0]);
+    super::bit!(quick_start: byte5[1]);
+    super::bit!(close_only: byte5[0]);
+}
+
+super::debug_fields!(DvdPlusRwDualLayer {
+    write,
+    quick_start,
+    close_only
+});

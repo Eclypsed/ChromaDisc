@@ -1,50 +1,50 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum CdTaoDescriptor {
-    #[deku(id = "0b0000")]
-    V0 {
-        #[deku(pad_bits_before = "5", bits = 1)]
-        test_write: bool,
-        #[deku(bits = 1)]
-        cdrw: bool,
-        #[deku(bits = 1, pad_bytes_after = "1")]
-        r_w_subcode: bool,
-        #[deku(endian = "big")]
-        data_type_supported: u16,
-    },
-    #[deku(id = "0b0001")]
-    V1 {
-        #[deku(pad_bits_before = "3", bits = 1)]
-        r_w_raw: bool,
-        #[deku(bits = 1)]
-        r_w_pack: bool,
-        #[deku(bits = 1)]
-        test_write: bool,
-        #[deku(bits = 1)]
-        cdrw: bool,
-        #[deku(bits = 1, pad_bytes_after = "1")]
-        r_w_subcode: bool,
-        #[deku(endian = "big")]
-        data_type_supported: u16,
-    },
-    #[deku(id = "0b0010")]
-    V2 {
-        #[deku(pad_bits_before = "1", bits = 1)]
-        buf: bool,
-        #[deku(pad_bits_before = "1", bits = 1)]
-        r_w_raw: bool,
-        #[deku(bits = 1)]
-        r_w_pack: bool,
-        #[deku(bits = 1)]
-        test_write: bool,
-        #[deku(bits = 1)]
-        cdrw: bool,
-        #[deku(bits = 1, pad_bytes_after = "1")]
-        r_w_subcode: bool,
-        #[deku(endian = "big")]
-        data_type_supported: u16,
-    },
+/// CD Track at Once (002Dh): the ability to write CD with Track at Once recording.
+///
+/// Laid out as version 2.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct CdTao {
+    byte4: u8,
+    _byte5: u8,
+    data_type_supported: U16<BigEndian>,
 }
+
+impl CdTao {
+    super::bit!(
+        /// Since version 2.
+        #[doc(alias = "BUF")]
+        buf: byte4[6]
+    );
+    super::bit!(
+        /// Since version 1.
+        #[doc(alias = "R-W Raw")]
+        rw_raw: byte4[4]
+    );
+    super::bit!(
+        /// Since version 1.
+        #[doc(alias = "R-W Pack")]
+        rw_pack: byte4[3]
+    );
+    super::bit!(#[doc(alias = "Test Write")] test_write: byte4[2]);
+    super::bit!(#[doc(alias = "CD-RW")] cd_rw: byte4[1]);
+    super::bit!(#[doc(alias = "R-W Sub-code")] rw_subcode: byte4[0]);
+
+    #[inline]
+    pub const fn data_type_supported(&self) -> u16 {
+        self.data_type_supported.get()
+    }
+}
+
+super::debug_fields!(CdTao {
+    buf,
+    rw_raw,
+    rw_pack,
+    test_write,
+    cd_rw,
+    rw_subcode,
+    data_type_supported
+});

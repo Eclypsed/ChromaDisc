@@ -11,6 +11,8 @@
 //! - [`UnmappedBits`] is what falls out of [`Bits::get`] when the stored
 //!   pattern has no variant.
 
+#![no_std]
+
 // Make `::bitfield::` resolvable from within this crate so the derive can
 // emit an absolute path that works everywhere (downstream deps, this crate's
 // own tests, and this crate's own examples).
@@ -18,8 +20,8 @@ extern crate self as bitfield;
 
 pub use bitfield_derive::BitsEnum;
 
-use std::fmt;
-use std::hash::{Hash, Hasher};
+use core::fmt;
+use core::hash::{Hash, Hasher};
 
 /// A fieldless enum that models a fixed-width bit pattern.
 ///
@@ -149,4 +151,4 @@ impl<B: fmt::Binary> fmt::Display for UnmappedBits<B> {
     }
 }
 
-impl<B: fmt::Debug + fmt::Binary> std::error::Error for UnmappedBits<B> {}
+impl<B: fmt::Debug + fmt::Binary> core::error::Error for UnmappedBits<B> {}

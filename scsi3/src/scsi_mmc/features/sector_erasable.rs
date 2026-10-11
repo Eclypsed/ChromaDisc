@@ -1,9 +1,11 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum SectorErasableDescriptor {
-    #[deku(id = "0b0000")]
-    V0,
-}
+/// Sector Erasable (0022h): write support for erasable media and media that requires an erase
+/// pass before overwrite.
+///
+/// Laid out as version 0, which has no Feature Dependent Data.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Debug, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct SectorErasable;

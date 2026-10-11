@@ -1,12 +1,19 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum DoubleDensityCdrWriteDescriptor {
-    #[deku(id = "0b0000")]
-    V0 {
-        #[deku(pad_bits_before = "5", bits = 1, pad_bits_after = "26")]
-        test_wr: bool,
-    },
+/// Double Density CD-R Write (0031h): the ability to write and read DDCD-R media.
+///
+/// Laid out as version 0.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct DoubleDensityCdrWrite {
+    byte4: u8,
+    _bytes5_7: [u8; 3],
 }
+
+impl DoubleDensityCdrWrite {
+    super::bit!(#[doc(alias = "Test Write")] test_write: byte4[2]);
+}
+
+super::debug_fields!(DoubleDensityCdrWrite { test_write });

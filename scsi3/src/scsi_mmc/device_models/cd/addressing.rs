@@ -122,7 +122,7 @@ impl fmt::Display for Msf {
 pub struct UnvalidatedMsf([u8; 3]);
 
 impl UnvalidatedMsf {
-    pub fn new(minute: u8, second: u8, frame: u8) -> Self {
+    pub const fn new(minute: u8, second: u8, frame: u8) -> Self {
         Self([minute, second, frame])
     }
 }

@@ -1,35 +1,21 @@
-use super::FeatureHeader;
-use deku::{ctx::Limit, deku_error, reader::Reader, DekuError, DekuRead, DekuReader};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum DriveSerialNumberDescriptor {
-    #[deku(id = "0b0000")]
-    V0 {
-        #[deku(reader = "read_serial(deku::reader, header.additional_length)")]
-        serial_number: String,
-    },
+use crate::core::ascii::UnvalidatedAsciiStr;
+
+/// Drive Serial Number (0108h): the Drive has a unique identifier.
+///
+/// Laid out as version 0.
+#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct DriveSerialNumber {
+    serial_number: UnvalidatedAsciiStr,
 }
 
-fn read_serial<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-    reader: &mut Reader<R>,
-    len: u8,
-) -> Result<String, DekuError> {
-    const SPACE: u8 = 0x20;
-    Vec::<u8>::from_reader_with_ctx(reader, Limit::new_count(len.into()))?
-        .into_iter()
-        .skip_while(|b| *b == SPACE)
-        .map(|b| {
-            if b.is_ascii_graphic() || b == SPACE {
-                Ok(b as char)
-            } else {
-                Err(deku_error!(
-                    DekuError::Parse,
-                    "Invalid ascii character in Serial Number",
-                    "{:02X}",
-                    b
-                ))
-            }
-        })
-        .collect::<Result<String, DekuError>>()
+impl DriveSerialNumber {
+    #[inline]
+    pub const fn serial_number(&self) -> &UnvalidatedAsciiStr {
+        &self.serial_number
+    }
 }
+
+super::debug_fields!(DriveSerialNumber { serial_number });

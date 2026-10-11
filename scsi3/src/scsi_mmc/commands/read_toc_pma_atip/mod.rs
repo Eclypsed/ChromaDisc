@@ -19,7 +19,7 @@ mod private {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ReadTocPmaAtip<R: ReadTocPmaAtipResponse> {
+pub struct ReadTocPmaAtip<R: ReadTocPmaAtipResponse + ?Sized> {
     _response_marker: PhantomData<R>,
     track_session_number: u8,
     allocation_length: u16,
@@ -153,7 +153,7 @@ impl ReadTocPmaAtip<cd_text::CdText> {
 
 type ReadTocPmaAtipOpCode = OpCode<0x43>;
 
-impl<R: ReadTocPmaAtipResponse> Command<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<R> {
+impl<R: ReadTocPmaAtipResponse + ?Sized> Command<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<R> {
     fn as_cdb(&self) -> <ReadTocPmaAtipOpCode as OpCodeDef>::Cdb {
         [
             ReadTocPmaAtipOpCode::OP_CODE,

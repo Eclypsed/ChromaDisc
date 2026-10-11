@@ -96,7 +96,7 @@ pub fn run_sgio(
     cdb: &mut [u8],
     buf: &mut [u8],
     dxfer_direction: DxferDirection,
-) -> Result<u32, ScsiError> {
+) -> Result<usize, ScsiError> {
     const SENSE_BUF_SIZE: u8 = 64;
     let mut sense = [0u8; SENSE_BUF_SIZE as usize];
 
@@ -155,7 +155,9 @@ pub fn run_sgio(
         // From the SCSI HOWTO: "In practice it only reports underruns (i.e. positive number) as data
         // overruns should never happen"
 
-        return Ok(dxfer_len.saturating_sub(header.resid as u32)); // Not sure if this is a safe cast
+        // In theory these casts are safe because dxfer_len comes from buf.len() (a usize) and resid
+        // should always be 0 <= resid <= dxfer_len.
+        return Ok((dxfer_len as usize).saturating_sub(header.resid as usize));
     }
 
     // If there's sense data, parse it for more details

@@ -1,15 +1,21 @@
-use super::FeatureHeader;
-use deku::deku_derive;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[deku_derive(DekuRead)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum LayerJumpRecordingDescriptor {
-    #[deku(id = "0b0000")]
-    V0 {
-        #[deku(temp, pad_bytes_before = "3")]
-        _L: u8,
-        #[deku(count = "*_L", pad_bytes_after = "3 - ((*_L + 3) % 4)")]
-        link_sizes: Vec<u8>,
-    },
+/// Layer Jump Recording (0033h): the ability to record in layer jump mode.
+///
+/// Laid out as version 0.
+#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct LayerJumpRecording {
+    _bytes4_6: [u8; 3],
+    number_of_link_sizes: u8,
+    link_sizes_and_pad: [u8],
 }
+
+impl LayerJumpRecording {
+    super::incremental_streaming_writable::link_sizes!();
+}
+
+super::debug_fields!(LayerJumpRecording {
+    number_of_link_sizes,
+    link_sizes
+});

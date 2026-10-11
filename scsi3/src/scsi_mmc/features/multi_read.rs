@@ -1,9 +1,10 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum MultiReadDescriptor {
-    #[deku(id = "0b0000")]
-    V0,
-}
+/// MultiRead (001Dh): the Drive is able to read all CD media types; based on OSTA MultiRead.
+///
+/// Laid out as version 0, which has no Feature Dependent Data.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Debug, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct MultiRead;

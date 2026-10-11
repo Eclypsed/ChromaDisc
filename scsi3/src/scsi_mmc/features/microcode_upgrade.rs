@@ -1,14 +1,23 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum MicrocodeUpgradeDescriptor {
-    #[deku(id = "0b0000")]
-    V0,
-    #[deku(id = "0b0001")]
-    V1 {
-        #[deku(pad_bits_before = "7", bits = 1, pad_bytes_after = "3")]
-        m5: bool,
-    },
+/// Microcode Upgrade (0104h): the ability of the device to accept new microcode via the interface.
+///
+/// Laid out as version 1. Version 0 has no Feature Dependent Data.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct MicrocodeUpgrade {
+    byte4: u8,
+    _bytes5_7: [u8; 3],
 }
+
+impl MicrocodeUpgrade {
+    super::bit!(
+        /// Since version 1.
+        #[doc(alias = "M5")]
+        m5: byte4[0]
+    );
+}
+
+super::debug_fields!(MicrocodeUpgrade { m5 });

@@ -1,25 +1,35 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum CdReadDescriptor {
-    #[deku(id = "0b0000")]
-    V0,
-    #[deku(id = "0b0001")]
-    V1 {
-        #[deku(pad_bits_before = "6", bits = 1)]
-        c2_flags: bool,
-        #[deku(bits = 1, pad_bytes_after = "3")]
-        cd_text: bool,
-    },
-    #[deku(id = "0b0010")]
-    V2 {
-        #[deku(bits = 1, pad_bits_after = "5")]
-        dap: bool,
-        #[deku(bits = 1)]
-        c2_flags: bool,
-        #[deku(bits = 1, pad_bytes_after = "3")]
-        cd_text: bool,
-    },
+/// CD Read (001Eh): the ability to read CD specific structures.
+///
+/// Laid out as version 2. Version 0 has no Feature Dependent Data.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct CdRead {
+    byte4: u8,
+    _bytes5_7: [u8; 3],
 }
+
+impl CdRead {
+    super::bit!(
+        /// Since version 2.
+        #[doc(alias = "DAP")]
+        digital_audio_play: byte4[7]
+    );
+    super::bit!(
+        /// Since version 1.
+        c2_flags: byte4[1]
+    );
+    super::bit!(
+        /// Since version 1.
+        cd_text: byte4[0]
+    );
+}
+
+super::debug_fields!(CdRead {
+    digital_audio_play,
+    c2_flags,
+    cd_text
+});

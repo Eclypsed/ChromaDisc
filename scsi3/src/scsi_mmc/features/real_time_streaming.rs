@@ -1,68 +1,56 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum RealTimeStreamingDescriptor {
-    #[deku(id = "0b0000")]
-    V0,
-    #[deku(id = "0b0001")]
-    V1 {
-        #[deku(pad_bits_before = "3", bits = 1, pad_bytes_after = "3")]
-        stream_writing: bool,
-    },
-    #[deku(id = "0b0010")]
-    V2 {
-        #[deku(pad_bits_before = "4", bits = 1)]
-        set_cd_speed: bool,
-        #[deku(bits = 1)]
-        mode_page_2a: bool,
-        #[deku(bits = 1)]
-        write_speed_performace_descriptor: bool,
-        #[deku(bits = 1, pad_bytes_after = "3")]
-        stream_writing: bool,
-    },
-    // I have no idea why v3 and v4 have the same byte layout
-    #[deku(id = "0b0011")]
-    V3 {
-        #[deku(pad_bits_before = "3", bits = 1)]
-        read_buffer_capacity_block: bool,
-        #[deku(bits = 1)]
-        set_cd_speed: bool,
-        #[deku(bits = 1)]
-        mode_page_2a: bool,
-        #[deku(bits = 1)]
-        write_speed_performace_descriptor: bool,
-        #[deku(bits = 1, pad_bytes_after = "3")]
-        stream_writing: bool,
-    },
-    // I have no idea why v3 and v4 have the same byte layout
-    #[deku(id = "0b0100")]
-    V4 {
-        #[deku(pad_bits_before = "3", bits = 1)]
-        read_buffer_capacity_block: bool,
-        #[deku(bits = 1)]
-        set_cd_speed: bool,
-        #[deku(bits = 1)]
-        mode_page_2a: bool,
-        #[deku(bits = 1)]
-        write_speed_performace_descriptor: bool,
-        #[deku(bits = 1, pad_bytes_after = "3")]
-        stream_writing: bool,
-    },
-    #[deku(id = "0b0101")]
-    V5 {
-        #[deku(pad_bits_before = "2", bits = 1)]
-        set_minimum_performance: bool,
-        #[deku(bits = 1)]
-        read_buffer_capacity_block: bool,
-        #[deku(bits = 1)]
-        set_cd_speed: bool,
-        #[deku(bits = 1)]
-        mode_page_2a: bool,
-        #[deku(bits = 1)]
-        write_speed_performace_descriptor: bool,
-        #[deku(bits = 1, pad_bytes_after = "3")]
-        stream_writing: bool,
-    },
+/// Real Time Streaming (0107h): the ability to read and write using Host requested performance
+/// parameters.
+///
+/// Laid out as version 5. Version 0 has no Feature Dependent Data.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct RealTimeStreaming {
+    byte4: u8,
+    _bytes5_7: [u8; 3],
 }
+
+impl RealTimeStreaming {
+    super::bit!(
+        /// Since version 5.
+        #[doc(alias = "SMP")]
+        set_minimum_performance: byte4[5]
+    );
+    super::bit!(
+        /// Since version 3.
+        #[doc(alias = "RBCB")]
+        read_buffer_capacity_block: byte4[4]
+    );
+    super::bit!(
+        /// Since version 2.
+        #[doc(alias = "SCS")]
+        set_cd_speed: byte4[3]
+    );
+    super::bit!(
+        /// Since version 2.
+        #[doc(alias = "MP2A")]
+        mode_page_2a: byte4[2]
+    );
+    super::bit!(
+        /// Since version 2.
+        #[doc(alias = "WSPD")]
+        write_speed_performance_descriptor: byte4[1]
+    );
+    super::bit!(
+        /// Since version 1.
+        #[doc(alias = "SW")]
+        stream_writing: byte4[0]
+    );
+}
+
+super::debug_fields!(RealTimeStreaming {
+    set_minimum_performance,
+    read_buffer_capacity_block,
+    set_cd_speed,
+    mode_page_2a,
+    write_speed_performance_descriptor,
+    stream_writing
+});

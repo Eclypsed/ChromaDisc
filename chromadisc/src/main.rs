@@ -7,17 +7,18 @@ use std::{
 use scsi3::{
     core::{
         addressing::{Lba, Span},
-        Command, Control, ReadCommand,
+        util::Present,
+        Command, Control, ReadCommand, ZcReadCommand,
     },
     mmc::{
         commands::{
             read_cd::{
-                c2::{BlockC2Pointers, C2Pointers, NoC2},
+                c2::{BlockC2Pointers, C2ErrorInfo, C2Pointers, NoC2},
                 main_channel::{
                     selections::{NoFields, SyncAllHeadersUserDataEdcEcc, UserData},
-                    CdDa, Mode2Form1,
+                    CdDa, MainChannel, Mode2Form1, SectorMode, SelectionOf,
                 },
-                sub_channel::{FormattedQ, NoSubChannel, RawPw},
+                sub_channel::{FormattedQ, NoSubChannel, RawPw, SubChannelSelection},
                 ReadCd, Transfer,
             },
             read_toc_pma_atip::{formatted_toc::FormattedToc, ReadTocPmaAtip},
@@ -26,6 +27,7 @@ use scsi3::{
     },
     spc::commands::inquiry::{standard_inquiry::StandardInquiry, Inquiry},
 };
+use zerocopy::{IntoBytes, Ref};
 
 use crate::{
     device::{scan_sysfs, Drive},
@@ -34,8 +36,6 @@ use crate::{
 
 pub mod device;
 pub mod transport;
-
-pub const CHROMADISC_VERSION: &str = "0.1.0";
 
 #[allow(dead_code)]
 fn inquiry(fd: &OwnedFd) -> StandardInquiry {
@@ -54,8 +54,8 @@ fn inquiry(fd: &OwnedFd) -> StandardInquiry {
 }
 
 #[allow(dead_code)]
-fn read_toc(fd: &OwnedFd) -> FormattedToc<Msf> {
-    let toc_cmd = ReadTocPmaAtip::<FormattedToc<Msf>>::new(0, 1024 * 4, Control::default());
+fn print_toc(fd: &OwnedFd) {
+    let toc_cmd = ReadTocPmaAtip::<FormattedToc<Lba>>::new(0, 1024 * 4, Control::default());
     let mut toc_buf = vec![0u8; toc_cmd.response_len().into()];
 
     let _toc_received = run_sgio(
@@ -66,11 +66,25 @@ fn read_toc(fd: &OwnedFd) -> FormattedToc<Msf> {
     )
     .unwrap();
 
-    toc_cmd.parse(&toc_buf).unwrap()
+    let (toc, _rest) = toc_cmd.parse(&toc_buf).unwrap();
+    println!("TOC:\n{:#?}", toc);
+}
+
+// This works but is far less efficient than simply interpreting the data in a different
+// order i.e. Having a separate zc struct that has c2 after subchannel
+fn normalize_c2_subchannel_ordering_quirk<M, L, C, S>(transfer: &mut Transfer<M, L, C, S>)
+where
+    M: SectorMode,
+    L: SelectionOf<M>,
+    C: C2ErrorInfo<C2Presence = Present>,
+    S: SubChannelSelection<SubChannelPresence = Present>,
+{
+    transfer.as_mut_bytes()[size_of::<MainChannel<M, L>>()..]
+        .rotate_left(size_of::<S::SubChannelData>());
 }
 
 fn main() -> io::Result<()> {
-    println!("ChromaDisc version {}", CHROMADISC_VERSION);
+    println!("ChromaDisc version {}", env!("CARGO_PKG_VERSION"));
     println!();
 
     let devices = scan_sysfs()?;
@@ -85,7 +99,7 @@ fn main() -> io::Result<()> {
     let fd = drive.get_fd()?;
 
     // println!("INQUIRY:\n{:#?}", inquiry(&fd));
-    println!("TOC:\n{:#?}", read_toc(&fd));
+    // print_toc(&fd);
 
     // let start = Msf::try_new(56, 15, 0).unwrap();
     // let end = Msf::try_new(56, 15, 2).unwrap();
@@ -107,7 +121,12 @@ fn main() -> io::Result<()> {
     .unwrap();
 
     println!("Received: {received} bytes");
-    let (sectors, _rem) = command.parse(&buf[0..(received as usize)]).unwrap();
+    let (sectors, _rem) = ZcReadCommand::parse(&command, &mut buf[0..(received)]).unwrap();
+    let sectors = Ref::into_mut(sectors);
+
+    // sectors
+    //     .iter_mut()
+    //     .for_each(normalize_c2_subchannel_ordering_quirk);
     println!("Sectors: {}", sectors.len());
     println!();
     println!("Sector:");

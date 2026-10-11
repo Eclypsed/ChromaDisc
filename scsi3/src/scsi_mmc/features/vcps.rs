@@ -1,9 +1,14 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum VcpsDescriptor {
-    #[deku(id = "0b0000")]
-    V0(#[deku(bytes = 4)] ()),
+/// VCPS (0110h): the ability to decode and optionally encode VCPS protected information.
+///
+/// Laid out as version 0, whose Feature Dependent Data is reserved.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct Vcps {
+    _bytes4_7: [u8; 4],
 }
+
+super::debug_fields!(Vcps {});

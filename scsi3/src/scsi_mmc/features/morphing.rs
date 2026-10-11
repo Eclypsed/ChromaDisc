@@ -1,19 +1,24 @@
-use super::FeatureHeader;
-use deku::DekuRead;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum MorphingDescriptor {
-    #[deku(id = "0b0000")]
-    V0 {
-        #[deku(pad_bits_before = "7", bits = 1, pad_bytes_after = "3")]
-        asynchronous: bool,
-    },
-    #[deku(id = "0b0001")]
-    V1 {
-        #[deku(pad_bits_before = "6", bits = 1)]
-        oc_event: bool,
-        #[deku(bits = 1, pad_bytes_after = "3")]
-        asynchronous: bool,
-    },
+/// Morphing (0002h): the Drive is able to report operational changes to the Host and accept Host
+/// requests to prevent operational changes.
+///
+/// Laid out as version 1.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct Morphing {
+    byte4: u8,
+    _bytes5_7: [u8; 3],
 }
+
+impl Morphing {
+    super::bit!(
+        /// Since version 1.
+        oc_event: byte4[1]
+    );
+    super::bit!(r#async: byte4[0]);
+}
+
+super::debug_fields!(Morphing { oc_event, r#async });

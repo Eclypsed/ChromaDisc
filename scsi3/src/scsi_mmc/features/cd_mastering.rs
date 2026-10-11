@@ -1,50 +1,44 @@
-use super::FeatureHeader;
 use arbitrary_int::u24;
-use deku::{ctx::Endian, reader::Reader, DekuError, DekuRead, DekuReader};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DekuRead)]
-#[deku(id = "header.version", ctx = "header: FeatureHeader")]
-pub enum CdMasteringDescriptor {
-    #[deku(id = "0b0000")]
-    V0 {
-        #[deku(pad_bits_before = "2", bits = 1)]
-        sao: bool,
-        #[deku(bits = 1)]
-        raw_ms: bool,
-        #[deku(bits = 1)]
-        raw: bool,
-        #[deku(bits = 1)]
-        test_write: bool,
-        #[deku(bits = 1)]
-        cdrw: bool,
-        #[deku(bits = 1)]
-        r_w: bool,
-        #[deku(reader = "read_u24(deku::reader)")]
-        maximum_cue_sheet_length: u24,
-    },
-    #[deku(id = "0b0001")]
-    V1 {
-        #[deku(pad_bits_before = "1", bits = 1)]
-        buf: bool,
-        #[deku(bits = 1)]
-        sao: bool,
-        #[deku(bits = 1)]
-        raw_ms: bool,
-        #[deku(bits = 1)]
-        raw: bool,
-        #[deku(bits = 1)]
-        test_write: bool,
-        #[deku(bits = 1)]
-        cdrw: bool,
-        #[deku(bits = 1)]
-        r_w: bool,
-        #[deku(reader = "read_u24(deku::reader)")]
-        maximum_cue_sheet_length: u24,
-    },
+/// CD Mastering (002Eh): the ability to write CD with Session at Once or Raw write methods.
+///
+/// Laid out as version 1.
+#[derive(
+    FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+)]
+#[repr(C)]
+pub struct CdMastering {
+    byte4: u8,
+    maximum_cue_sheet_length: [u8; 3],
 }
 
-fn read_u24<R: deku::no_std_io::Read + deku::no_std_io::Seek>(
-    reader: &mut Reader<R>,
-) -> Result<u24, DekuError> {
-    <[u8; 3]>::from_reader_with_ctx(reader, Endian::Big).map(u24::from_be_bytes)
+impl CdMastering {
+    super::bit!(
+        /// Since version 1.
+        #[doc(alias = "BUF")]
+        buf: byte4[6]
+    );
+    super::bit!(#[doc(alias = "SAO")] session_at_once: byte4[5]);
+    super::bit!(#[doc(alias = "Raw MS")] raw_multi_session: byte4[4]);
+    super::bit!(raw: byte4[3]);
+    super::bit!(#[doc(alias = "Test Write")] test_write: byte4[2]);
+    super::bit!(#[doc(alias = "CD-RW")] cd_rw: byte4[1]);
+    super::bit!(#[doc(alias = "R-W")] rw: byte4[0]);
+
+    #[inline]
+    pub const fn maximum_cue_sheet_length(&self) -> u24 {
+        u24::from_be_bytes(self.maximum_cue_sheet_length)
+    }
 }
+
+super::debug_fields!(CdMastering {
+    buf,
+    session_at_once,
+    raw_multi_session,
+    raw,
+    test_write,
+    cd_rw,
+    rw,
+    maximum_cue_sheet_length
+});

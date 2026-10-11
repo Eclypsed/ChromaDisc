@@ -1,8 +1,10 @@
 use arbitrary_int::traits::UnsignedInteger;
 use derive_more::{From, Into};
 use thiserror::Error;
+use zerocopy::SplitByteSlice;
 
 pub mod addressing;
+pub mod ascii;
 pub mod util;
 
 mod private {
@@ -107,6 +109,13 @@ pub trait ReadCommand<O: OpCodeDef>: Command<O> {
     /// responsibility.
     fn response_len(&self) -> Self::Len;
     fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error>;
+}
+
+pub trait ZcReadCommand<O: OpCodeDef>: Command<O> {
+    type Response<B: SplitByteSlice>;
+    type Error;
+
+    fn parse<B: SplitByteSlice>(&self, buf: B) -> Result<Self::Response<B>, Self::Error>;
 }
 
 pub trait WriteCommand<O: OpCodeDef>: Command<O> {

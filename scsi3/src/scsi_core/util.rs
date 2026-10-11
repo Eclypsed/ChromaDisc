@@ -13,6 +13,13 @@ impl Bit for u8 {
     }
 }
 
+#[macro_export]
+macro_rules! bit_set {
+    ($byte:expr, $bit:literal) => {
+        (($byte & (1 << $bit)) != 0)
+    };
+}
+
 pub trait Zc: FromBytes + IntoBytes + Immutable + KnownLayout + Unaligned {}
 impl<T> Zc for T where T: FromBytes + IntoBytes + Immutable + KnownLayout + Unaligned {}
 
@@ -32,28 +39,4 @@ impl Presence for Present {
 impl Presence for Absent {
     type Output<T: Zc> = ();
     const PRESENT: bool = false;
-}
-
-pub trait BytesRepr: Sized {
-    type Bytes: Zc;
-    type Error;
-
-    fn from_bytes(bytes: Self::Bytes) -> Result<Self, Self::Error>;
-    fn to_bytes(&self) -> Self::Bytes;
-}
-
-#[repr(transparent)]
-#[derive(FromBytes, IntoBytes, Immutable, KnownLayout, Unaligned)]
-pub struct Bytes<T: BytesRepr>(T::Bytes);
-
-impl<T: BytesRepr> Bytes<T> {
-    pub fn get(self) -> Result<T, T::Error> {
-        T::from_bytes(self.0)
-    }
-}
-
-impl<T: BytesRepr> From<T> for Bytes<T> {
-    fn from(value: T) -> Self {
-        Bytes(value.to_bytes())
-    }
 }
