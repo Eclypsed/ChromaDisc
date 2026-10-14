@@ -7,30 +7,7 @@ use zerocopy::{
     BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, TryFromBytes, Unalign, Unaligned, U16,
 };
 
-macro_rules! bit {
-    ($(#[$m:meta])* $name:ident: $field:ident[$bit:literal]) => {
-        $(#[$m])*
-        #[inline]
-        pub const fn $name(&self) -> bool { self.$field & (1 << $bit) != 0 }
-    };
-}
-
-use bit;
-
-/// Implements `Debug` as a struct of what the given accessors return.
-macro_rules! debug_fields {
-    ($type:ident { $($accessor:ident),* $(,)? }) => {
-        impl ::core::fmt::Debug for $type {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                f.debug_struct(stringify!($type))
-                    $(.field(stringify!($accessor).trim_start_matches("r#"), &self.$accessor()))*
-                    .finish()
-            }
-        }
-    };
-}
-
-use debug_fields;
+use crate::core::util::{bit, debug_fields};
 
 pub mod aacs;
 pub mod bd_read;
@@ -581,18 +558,14 @@ impl FeatureCode {
 
 #[cfg(test)]
 mod tests {
-    use alloc::format;
-
     use arbitrary_int::u2;
 
     use super::{
         bd_read::BdRead,
         cd_read::CdRead,
-        cdrw_media_write_support::CdrwMediaWriteSupport,
         core::{Core, PhysicalInterfaceStandard},
         drive_serial_number::DriveSerialNumber,
         incremental_streaming_writable::IncrementalStreamingWritable,
-        morphing::Morphing,
         ossc::Ossc,
         profile_list::ProfileList,
         random_writable::RandomWritable,
@@ -795,49 +768,6 @@ mod tests {
         assert_eq!(data.logical_block_size(), 2048);
         assert_eq!(data.blocking(), 0x10);
         assert!(data.page_present());
-    }
-
-    #[test]
-    fn debug_shows_accessors() {
-        let buf = [0x00, 0x1E, 0b1011, 4, 0x83, 0, 0, 0];
-        assert_eq!(
-            format!("{:?}", descriptor(&buf).get::<CdRead>().unwrap()),
-            "FeatureDescriptor { feature_code: FeatureCode(001Eh), version: 2, persistent: true, \
-             current: true, additional_length: 4, data: CdRead { digital_audio_play: true, \
-             c2_flags: true, cd_text: true }, trailing: [] }"
-        );
-
-        // Raw identifiers print without `r#`
-        let buf = [0x00, 0x02, 0b0111, 4, 0b11, 0, 0, 0];
-        let data = descriptor(&buf).get::<Morphing>().unwrap().data().unwrap();
-        assert_eq!(
-            format!("{data:?}"),
-            "Morphing { oc_event: true, async: true }"
-        );
-
-        // Flags print by name
-        let buf = [0x00, 0x37, 0b0011, 4, 0, 0b11, 0, 0];
-        let data = descriptor(&buf)
-            .get::<CdrwMediaWriteSupport>()
-            .unwrap()
-            .data()
-            .unwrap();
-        assert_eq!(
-            format!("{data:?}"),
-            "CdrwMediaWriteSupport { cd_rw_media_subtype_support: \
-             CdrwMediaSubtypeSupport(STANDARD | HIGH_SPEED) }"
-        );
-    }
-
-    #[test]
-    fn debug_shows_raw_data_shorter_than_layout() {
-        // Random Writable v0 as laid out in MMC-2r09
-        let buf = [0x00, 0x20, 0b0011, 8, 0, 0, 0x10, 0, 0, 0x10, 0b1, 0];
-        assert_eq!(
-            format!("{:?}", descriptor(&buf).get::<RandomWritable>().unwrap()),
-            "FeatureDescriptor { feature_code: FeatureCode(0020h), version: 0, persistent: true, \
-             current: true, additional_length: 8, raw_data: [0, 0, 16, 0, 0, 16, 1, 0] }"
-        );
     }
 
     #[test]

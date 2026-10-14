@@ -1,51 +1,65 @@
-use alloc::vec::Vec;
 use arbitrary_int::{u2, u3, u4, u5};
 use bitfield::{Bits, BitsEnum, BitsRepr};
+use derive_more::Debug;
 use thiserror::Error;
-use tinystr::UnvalidatedTinyAsciiStr;
+use zerocopy::{CastError, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-use super::{Inquiry, InquiryOpCode};
+use super::{version_descriptor::VersionDescriptor, Inquiry, InquiryOpCode};
 
-use crate::core::{util::Bit, ReadCommand, TruncationError};
+use crate::core::{
+    ascii::UnvalidatedSizedAsciiStr,
+    util::{bit, debug_fields},
+    ReadCommand, TruncationError,
+};
 
+/// The length of the fields every response holds, through Product Revision Level.
 const STANDARD_INQUIRY_MIN_BYTES: usize = 36;
 const RESPONSE_DATA_FORMAT: u4 = u4::new(0x2);
-const MAX_VERSION_DESCRIPTORS: usize = 8;
 
 #[derive(Debug, Error)]
 pub enum StandardInquiryError {
-    /// The error returned when attempting to parse fewer than 36 bytes into
-    /// [`StandardInquiry`](StandardInquiry).
+    /// The error returned when attempting to parse fewer than 36 bytes into [`StandardInquiry`].
     ///
     /// The standard INQUIRY data shall contain at least 36 bytes according to SCSI-2 through SPC-7.
     #[error(transparent)]
     Truncated(#[from] TruncationError<STANDARD_INQUIRY_MIN_BYTES>),
-    /// The error returned when a RESPONSE DATA FORMAT vlaue other tha 2h is encountered. Codes
+    /// The error returned when a RESPONSE DATA FORMAT value other than 2h is encountered. Codes
     /// less than 2h are obsolete as of SCSI-2 and are not supported by the library. Codes 3h-Fh
-    /// are reserved and will result in a breaking data structure change should they every be
+    /// are reserved and will result in a breaking data structure change should they ever be
     /// allocated.
+    ///
+    /// To read the response anyway, set the field to 2h in the buffer and parse again, or cast
+    /// the buffer to [`StandardInquiry`] directly.
     #[error("Invalid Response Data Format value `{0:X}`, expected {RESPONSE_DATA_FORMAT:X}")]
     InvalidResponseDataFormat(u4),
 }
 
 impl ReadCommand<InquiryOpCode> for Inquiry<StandardInquiry> {
     type Len = u16;
-    type Response<'a> = StandardInquiry;
+    type Response<'a> = (&'a StandardInquiry, &'a [u8]);
     type Error = StandardInquiryError;
 
     fn response_len(&self) -> Self::Len {
         self.allocation_length
     }
 
+    /// Reads `buf` as a response cut to Additional Length, and returns the bytes after it.
+    ///
+    /// `buf` should hold only the bytes the device server transferred. Any bytes past the
+    /// transfer that still fall within Additional Length, such as an allocated buffer's unused
+    /// tail, are read as part of the response.
     fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
-        if buf.len() < STANDARD_INQUIRY_MIN_BYTES {
-            return Err(TruncationError::<STANDARD_INQUIRY_MIN_BYTES>(buf.len()).into());
-        }
+        let buf_len = buf.len();
 
-        // Not sure if there is really anything I can do with this other than use it to make an
-        // additional "bytes left" return value.
-        let _additional_length: usize = buf[4].into();
+        let Some(max_num_additional_bytes) = buf_len.checked_sub(STANDARD_INQUIRY_MIN_BYTES) else {
+            return Err(TruncationError(buf_len).into());
+        };
 
+        // NOTE: SFF-8020i r2.6 requires a Response Data Format of 1h, with an ATAPI version of 2
+        // in bits 7-4, so an ATAPI device may report 1h here. Linux libata rewrites bytes 2-3 to
+        // 05h and 32h whenever an ATAPI device reports a Version of 0 (`atapi_fixup_inquiry` in
+        // drivers/ata/libata-scsi.c). The test drive reports 00h and 32h through a USB bridge
+        // (quirk 5 in docs/quirks.md).
         let response_data_format = u4::extract_u8(buf[3], 0);
         if response_data_format != RESPONSE_DATA_FORMAT {
             return Err(StandardInquiryError::InvalidResponseDataFormat(
@@ -53,53 +67,21 @@ impl ReadCommand<InquiryOpCode> for Inquiry<StandardInquiry> {
             ));
         }
 
-        Ok(StandardInquiry {
-            peripheral_qualifier: Bits::<PeripheralQualifier>::new(u3::extract_u8(buf[0], 5)),
-            peripheral_device_type: Bits::<PeripheralDeviceType>::new(u5::extract_u8(buf[0], 0)),
-            rmb: buf[1].bit(7),
-            lu_cong: buf[1].bit(6),
-            hot_pluggable: Bits::<HotPluggable>::new(u2::extract_u8(buf[1], 4)),
-            version: Bits::<Version>::new(buf[2]),
-            aerc: buf[3].bit(7),
-            trm_tsk: buf[3].bit(6),
-            norm_aca: buf[3].bit(5),
-            hi_sup: buf[3].bit(4),
-            sccs: buf[5].bit(7),
-            acc: buf[5].bit(6),
-            tpgs: Bits::<TargetPortGroupSupport>::new(u2::extract_u8(buf[5], 4)),
-            third_party_copy: buf[5].bit(3),
-            protect: buf[5].bit(0),
-            basic_queuing: buf[6].bit(7),
-            enclosure_services: buf[6].bit(6),
-            multi_port: buf[6].bit(4),
-            medium_changer: buf[6].bit(3),
-            ackreqq: buf[6].bit(2),
-            addr32: buf[6].bit(1),
-            addr16: buf[6].bit(0),
-            relative_addressing: buf[7].bit(7),
-            wbus32: buf[7].bit(6),
-            wbus16: buf[7].bit(5),
-            sync: buf[7].bit(4),
-            linked: buf[7].bit(3),
-            transfer_disable: buf[7].bit(2),
-            command_queuing: buf[7].bit(1),
-            vendor_identification: UnvalidatedTinyAsciiStr::try_from_utf8(&buf[8..=15]).unwrap(),
-            product_identification: UnvalidatedTinyAsciiStr::try_from_utf8(&buf[16..=31]).unwrap(),
-            product_revision_level: UnvalidatedTinyAsciiStr::try_from_utf8(&buf[32..=35]).unwrap(),
-            // Beyond this point the length is unvalidated, use get() not indexing
-            clocking: buf
-                .get(56)
-                .map(|b| Bits::<Clocking>::new(u2::extract_u8(*b, 2))),
-            qas: buf.get(56).map(|b| b.bit(1)),
-            ius: buf.get(56).map(|b| b.bit(0)),
-            version_descriptors: buf
-                .get(58..)
-                .unwrap_or_default()
-                .chunks_exact(2)
-                .take(MAX_VERSION_DESCRIPTORS)
-                .map(|b| u16::from_be_bytes([b[0], b[1]]))
-                .collect(),
-        })
+        // Additional Length counts the bytes following its own field, at byte 4. A value too
+        // small to cover the first 36 bytes still leaves them readable.
+        let elems = (usize::from(buf[4]) + 5)
+            .saturating_sub(STANDARD_INQUIRY_MIN_BYTES)
+            .min(max_num_additional_bytes);
+
+        match StandardInquiry::ref_from_prefix_with_elems(buf, elems) {
+            Ok(res) => Ok(res),
+            Err(CastError::Size(_)) => {
+                unreachable!("`buf` should hold the first 36 bytes plus `elems` bytes")
+            }
+            Err(CastError::Alignment(_)) => {
+                unreachable!("`StandardInquiry` should be `Unaligned`")
+            }
+        }
     }
 }
 
@@ -123,7 +105,6 @@ pub enum PeripheralQualifier {
 }
 
 /// SCSI PERIPHERAL DEVICE TYPE field (5 bits, INQUIRY byte 0 bits 4:0).
-/// Codes per SPC-5 Table 150.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, BitsEnum)]
 #[bits(5, repr = u5, reserved = 0x06 | 0x09..=0x0B | 0x10 | 0x15..=0x1D)]
@@ -167,7 +148,6 @@ pub enum PeripheralDeviceType {
 }
 
 /// SCSI HOT PLUGGABLE field (2 bits, INQUIRY byte 1 bits 5:4).
-/// Codes per SPC-5 Table 151.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, BitsEnum)]
 #[bits(2, repr = u2, reserved = 0b11)]
@@ -314,54 +294,526 @@ pub enum Clocking {
     StAndDt = 0b11,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Standard INQUIRY data: the response to INQUIRY with EVPD and CMDDT set to zero.
+///
+/// A response holds at least the first 36 bytes, through Product Revision Level. The fields after
+/// those are optional, and their accessors return the part of them that's present, cut to
+/// Additional Length.
+///
+/// [`parse`](ReadCommand::parse) rejects a Response Data Format other than 2h. Casting a buffer
+/// directly skips that check, and the accessors read the 2h format whatever the field holds.
+// NOTE: As of spc7r05, AERC, TRMTSK, ACC, BQUE, MCHNGR, ACKREQQ, ADDR32, ADDR16, RELADR, WBUS32,
+// WBUS16, SYNC, LINKED, TRANDIS, CLOCKING, QAS and IUS are obsolete. Their accessors are documented
+// as obsolete and left out of `Debug`.
+//
+// AERC, TRMTSK, ACKREQQ, ADDR32, WBUS32 and TRANDIS went from obsolete back to reserved. This is
+// the only place in SCSI where obsolete bits have been seen to return to reserved. None of them
+// has been reassigned yet. If one is, its accessor here reads the new field.
+// TODO: Find the revision that made each of these bits obsolete, and the one that made the six
+// reserved.
+#[derive(FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub struct StandardInquiry {
-    pub peripheral_qualifier: Bits<PeripheralQualifier>,
-    pub peripheral_device_type: Bits<PeripheralDeviceType>,
-    pub rmb: bool,
-    pub lu_cong: bool,
-    pub hot_pluggable: Bits<HotPluggable>,
-    // byte 1 bits 3:0 reserved
-    pub version: Bits<Version>,
-    pub aerc: bool,
-    pub trm_tsk: bool,
-    pub norm_aca: bool,
-    pub hi_sup: bool,
-    // Response Data Format (2h) - if not 2 this will be an error
-    pub sccs: bool,
-    pub acc: bool,
-    pub tpgs: Bits<TargetPortGroupSupport>,
-    pub third_party_copy: bool,
-    // byte 5 bits 2:1 reserved
-    pub protect: bool,
-    pub basic_queuing: bool,
-    pub enclosure_services: bool,
-    // byte 6 bit 5 vendor specific
-    pub multi_port: bool,
-    pub medium_changer: bool,
-    pub ackreqq: bool,
-    pub addr32: bool,
-    pub addr16: bool,
-    pub relative_addressing: bool,
-    pub wbus32: bool,
-    pub wbus16: bool,
-    pub sync: bool,
-    pub linked: bool,
-    pub transfer_disable: bool,
-    pub command_queuing: bool,
-    // byte 7 bit 0 vendor specific
-    pub vendor_identification: UnvalidatedTinyAsciiStr<8>,
-    pub product_identification: UnvalidatedTinyAsciiStr<16>,
-    pub product_revision_level: UnvalidatedTinyAsciiStr<4>,
-    // bytes 36:55 reserved
-    // byte 56 bit 7:4 reserved
-    pub clocking: Option<Bits<Clocking>>,
-    pub qas: Option<bool>,
-    pub ius: Option<bool>,
-    // byte 57 reserved
-    // All version descriptors will be included, including 0000h. If there are fewer than 8
-    // descriptors that means the response was truncated.
-    pub version_descriptors: Vec<u16>,
-    // byte 74:95 reserved
-    // byte 96:n vendor specific
+    peripheral_byte: u8,
+    byte1: u8,
+    version: u8,
+    byte3: u8,
+    additional_length: u8,
+    byte5: u8,
+    byte6: u8,
+    byte7: u8,
+    t10_vendor_identification: UnvalidatedSizedAsciiStr<8>,
+    product_identification: UnvalidatedSizedAsciiStr<16>,
+    product_revision_level: UnvalidatedSizedAsciiStr<4>,
+    /// Bytes 36 to n, not cut to Additional Length.
+    additional_data: [u8],
+}
+
+impl StandardInquiry {
+    #[inline]
+    pub const fn peripheral_qualifier(&self) -> Bits<PeripheralQualifier> {
+        Bits::new(u3::extract_u8(self.peripheral_byte, 5))
+    }
+
+    #[inline]
+    pub const fn peripheral_device_type(&self) -> Bits<PeripheralDeviceType> {
+        Bits::new(u5::extract_u8(self.peripheral_byte, 0))
+    }
+
+    bit!(
+        /// Whether the medium is removable.
+        #[doc(alias = "RMB")]
+        removable_medium: byte1[7]
+    );
+    bit!(
+        /// Whether the logical unit is a member of a logical unit conglomerate.
+        #[doc(alias = "LU_CONG")]
+        logical_unit_conglomerate: byte1[6]
+    );
+
+    #[inline]
+    pub const fn hot_pluggable(&self) -> Bits<HotPluggable> {
+        Bits::new(u2::extract_u8(self.byte1, 4))
+    }
+
+    #[inline]
+    pub const fn version(&self) -> Bits<Version> {
+        Bits::new(self.version)
+    }
+
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "AERC")]
+        asynchronous_event_reporting_capability: byte3[7]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "TRMTSK")]
+        terminate_task: byte3[6]
+    );
+    // NOTE: SFF-8020i puts an ATAPI version in bits 7-4 of byte 3. The test drive reports 32h,
+    // which reads either as NORMACA and HISUP set or as ATAPI version 3 (quirk 5 in
+    // docs/quirks.md).
+    // CONFIRM: Send the test drive TEST UNIT READY with NACA set in the CONTROL byte. A rejection
+    // with INVALID FIELD IN CDB would contradict NORMACA set to one.
+    bit!(
+        /// Whether the device server supports a NACA bit set to one in the CONTROL byte.
+        #[doc(alias = "NORMACA")]
+        normal_aca_supported: byte3[5]
+    );
+    // NOTE: SPC-3 names this bit hierarchical support, set when the device server uses the
+    // hierarchical addressing model to assign LUNs. SPC-5 and later name it historical support.
+    // Which revision in between renamed it is unknown.
+    bit!(
+        /// Whether the SCSI target device uses the LUN structures described in SAM-6.
+        #[doc(alias = "HISUP")]
+        historical_support: byte3[4]
+    );
+
+    /// 2h. Values below 2h are obsolete, and values above it are reserved.
+    #[inline]
+    pub const fn response_data_format(&self) -> u4 {
+        u4::extract_u8(self.byte3, 0)
+    }
+
+    /// The length of the response that follows this field.
+    ///
+    /// Not cut by Allocation Length, so it can exceed the bytes the device server transferred.
+    #[inline]
+    pub const fn additional_length(&self) -> u8 {
+        self.additional_length
+    }
+
+    bit!(
+        /// Whether the SCSI target device contains an embedded storage array controller component.
+        #[doc(alias = "SCCS")]
+        scc_supported: byte5[7]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "ACC")]
+        access_controls_coordinator: byte5[6]
+    );
+
+    #[doc(alias = "TPGS")]
+    #[inline]
+    pub const fn target_port_group_support(&self) -> Bits<TargetPortGroupSupport> {
+        Bits::new(u2::extract_u8(self.byte5, 4))
+    }
+
+    bit!(
+        /// Whether the SCSI target device supports third-party copy commands.
+        #[doc(alias = "3PC")]
+        third_party_copy: byte5[3]
+    );
+    bit!(
+        /// Whether the logical unit supports protection information.
+        protect: byte5[0]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "BQUE")]
+        basic_queuing: byte6[7]
+    );
+    bit!(
+        /// Whether the SCSI target device contains an embedded enclosure services component.
+        #[doc(alias = "ENCSERV")]
+        enclosure_services: byte6[6]
+    );
+    bit!(
+        /// Whether the SCSI target device has more than one SCSI target port.
+        #[doc(alias = "MULTIP")]
+        multi_port: byte6[4]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "MCHNGR")]
+        medium_changer: byte6[3]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "ACKREQQ")]
+        ackreqq: byte6[2]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "ADDR32")]
+        addr32: byte6[1]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "ADDR16")]
+        addr16: byte6[0]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "RELADR")]
+        relative_addressing: byte7[7]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "WBUS32")]
+        wide_bus_32: byte7[6]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "WBUS16")]
+        wide_bus_16: byte7[5]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "SYNC")]
+        synchronous_transfer: byte7[4]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "LINKED")]
+        linked_commands: byte7[3]
+    );
+    bit!(
+        /// Obsolete.
+        #[doc(alias = "TRANDIS")]
+        transfer_disable: byte7[2]
+    );
+    bit!(
+        /// Whether the logical unit supports the command management model.
+        #[doc(alias = "CMDQUE")]
+        command_queuing: byte7[1]
+    );
+
+    #[inline]
+    pub const fn t10_vendor_identification(&self) -> &UnvalidatedSizedAsciiStr<8> {
+        &self.t10_vendor_identification
+    }
+
+    #[inline]
+    pub const fn product_identification(&self) -> &UnvalidatedSizedAsciiStr<16> {
+        &self.product_identification
+    }
+
+    #[inline]
+    pub const fn product_revision_level(&self) -> &UnvalidatedSizedAsciiStr<4> {
+        &self.product_revision_level
+    }
+
+    /// Bytes 36-55, shorter if the response ends before byte 56.
+    #[inline]
+    pub const fn vendor_specific(&self) -> &[u8] {
+        self.bytes(36, 56)
+    }
+
+    /// Obsolete. `None` if the response ends before byte 56.
+    #[inline]
+    pub const fn clocking(&self) -> Option<Bits<Clocking>> {
+        match self.byte56() {
+            Some(byte56) => Some(Bits::new(u2::extract_u8(byte56, 2))),
+            None => None,
+        }
+    }
+
+    /// Obsolete. `None` if the response ends before byte 56.
+    #[doc(alias = "QAS")]
+    #[inline]
+    pub const fn quick_arbitration_and_selection(&self) -> Option<bool> {
+        match self.byte56() {
+            Some(byte56) => Some(byte56 & 1 << 1 != 0),
+            None => None,
+        }
+    }
+
+    /// Obsolete. `None` if the response ends before byte 56.
+    #[doc(alias = "IUS")]
+    #[inline]
+    pub const fn information_units_supported(&self) -> Option<bool> {
+        match self.byte56() {
+            Some(byte56) => Some(byte56 & 1 << 0 != 0),
+            None => None,
+        }
+    }
+
+    /// The Version Descriptors, unused ones ([`VersionDescriptor::NOT_SUPPORTED`]) included.
+    ///
+    /// Fewer than 8 only if the response ends before byte 74. A Version Descriptor cut short is
+    /// left out.
+    pub fn version_descriptors(&self) -> &[VersionDescriptor] {
+        match <[VersionDescriptor]>::ref_from_prefix(self.bytes(58, 74)) {
+            Ok((version_descriptors, _cut_short)) => version_descriptors,
+            Err(CastError::Size(_)) => unreachable!("an empty slice should fit any bytes"),
+            Err(CastError::Alignment(_)) => {
+                unreachable!("`VersionDescriptor` should be `Unaligned`")
+            }
+        }
+    }
+
+    /// Bytes 96 to n, empty if the response ends before byte 96.
+    #[inline]
+    pub const fn vendor_specific_parameters(&self) -> &[u8] {
+        match self
+            .additional()
+            .split_at_checked(96 - STANDARD_INQUIRY_MIN_BYTES)
+        {
+            Some((_, vendor_specific_parameters)) => vendor_specific_parameters,
+            None => &[],
+        }
+    }
+
+    /// Bytes 36 to n, cut to Additional Length.
+    ///
+    /// Shorter than Additional Length only if the response itself was cut short.
+    const fn additional(&self) -> &[u8] {
+        let len = (self.additional_length as usize + 5).saturating_sub(STANDARD_INQUIRY_MIN_BYTES);
+        match self.additional_data.split_at_checked(len) {
+            Some((additional, _)) => additional,
+            None => &self.additional_data,
+        }
+    }
+
+    /// Bytes `start..end` of the response, or the part of them that's present.
+    ///
+    /// `start` is at least 36.
+    const fn bytes(&self, start: usize, end: usize) -> &[u8] {
+        let bytes = match self
+            .additional()
+            .split_at_checked(start - STANDARD_INQUIRY_MIN_BYTES)
+        {
+            Some((_, bytes)) => bytes,
+            None => &[],
+        };
+        match bytes.split_at_checked(end - start) {
+            Some((bytes, _)) => bytes,
+            None => bytes,
+        }
+    }
+
+    /// Byte 56, which holds CLOCKING, QAS and IUS.
+    const fn byte56(&self) -> Option<u8> {
+        match self.bytes(56, 57) {
+            [byte56] => Some(*byte56),
+            _ => None,
+        }
+    }
+}
+
+debug_fields!(StandardInquiry {
+    peripheral_qualifier,
+    peripheral_device_type,
+    removable_medium,
+    logical_unit_conglomerate,
+    hot_pluggable,
+    version,
+    normal_aca_supported,
+    historical_support,
+    response_data_format,
+    additional_length,
+    scc_supported,
+    target_port_group_support,
+    third_party_copy,
+    protect,
+    enclosure_services,
+    multi_port,
+    command_queuing,
+    t10_vendor_identification,
+    product_identification,
+    product_revision_level,
+    vendor_specific,
+    version_descriptors,
+    vendor_specific_parameters,
+});
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::Control;
+
+    fn command() -> Inquiry<StandardInquiry> {
+        Inquiry::new(0xFF, Control::default())
+    }
+
+    /// The first 36 bytes of a CD/DVD device's response, followed by zeros.
+    fn response<const N: usize>(additional_length: u8) -> [u8; N] {
+        let mut buf = [0; N];
+        // Connected CD/DVD device, RMB, SPC-4, Response Data Format 2h, CMDQUE
+        buf[..8].copy_from_slice(&[0x05, 0x80, 0x06, 0x02, additional_length, 0, 0, 0x02]);
+        buf[8..16].copy_from_slice(b"VENDOR  ");
+        buf[16..32].copy_from_slice(b"PRODUCT         ");
+        buf[32..36].copy_from_slice(b"1.00");
+        buf
+    }
+
+    #[test]
+    fn truncated_response_is_an_error() {
+        assert!(matches!(
+            command().parse(&[0; 35]),
+            Err(StandardInquiryError::Truncated(TruncationError(35)))
+        ));
+    }
+
+    #[test]
+    fn response_data_format_other_than_2h_is_an_error() {
+        let mut buf = response::<36>(31);
+        for byte3 in [0x01, 0x13] {
+            buf[3] = byte3;
+            assert!(matches!(
+                command().parse(&buf),
+                Err(StandardInquiryError::InvalidResponseDataFormat(format))
+                    if format == u4::new(byte3 & 0x0F)
+            ));
+        }
+    }
+
+    #[test]
+    fn minimum_response_has_no_optional_fields() {
+        let buf = response::<36>(31);
+        let (inquiry, rest) = command().parse(&buf).unwrap();
+        assert!(rest.is_empty());
+
+        assert_eq!(
+            inquiry.peripheral_qualifier().get(),
+            Ok(PeripheralQualifier::Connected)
+        );
+        assert_eq!(
+            inquiry.peripheral_device_type().get(),
+            Ok(PeripheralDeviceType::CdDvd)
+        );
+        assert!(inquiry.removable_medium());
+        assert_eq!(inquiry.version().get(), Ok(Version::Spc4));
+        assert_eq!(inquiry.response_data_format(), u4::new(2));
+        assert!(inquiry.command_queuing());
+        assert_eq!(inquiry.t10_vendor_identification().as_bytes(), b"VENDOR  ");
+        assert_eq!(
+            inquiry.product_identification().as_bytes(),
+            b"PRODUCT         "
+        );
+        assert_eq!(inquiry.product_revision_level().as_bytes(), b"1.00");
+
+        assert!(inquiry.vendor_specific().is_empty());
+        assert!(inquiry.clocking().is_none());
+        assert!(inquiry.quick_arbitration_and_selection().is_none());
+        assert!(inquiry.information_units_supported().is_none());
+        assert!(inquiry.version_descriptors().is_empty());
+        assert!(inquiry.vendor_specific_parameters().is_empty());
+    }
+
+    #[test]
+    fn parse_cuts_at_additional_length() {
+        let mut buf = response::<99>(91);
+        buf[36..56].fill(0xAA);
+        buf[56] = 0b1111; // CLOCKING: ST and DT, QAS, IUS
+        buf[58..62].copy_from_slice(&[0x00, 0x60, 0x04, 0x60]);
+        buf[96..].fill(0xEE);
+
+        let (inquiry, rest) = command().parse(&buf).unwrap();
+        assert_eq!(rest, [0xEE; 3]);
+        assert_eq!(inquiry.vendor_specific(), [0xAA; 20]);
+        assert_eq!(
+            inquiry.clocking().map(Bits::get),
+            Some(Ok(Clocking::StAndDt))
+        );
+        assert_eq!(inquiry.quick_arbitration_and_selection(), Some(true));
+        assert_eq!(inquiry.information_units_supported(), Some(true));
+        assert_eq!(inquiry.version_descriptors().len(), 8);
+        assert_eq!(
+            inquiry.version_descriptors()[..3],
+            [
+                VersionDescriptor::SAM_3,
+                VersionDescriptor::SPC_4,
+                VersionDescriptor::NOT_SUPPORTED,
+            ]
+        );
+        assert!(inquiry.vendor_specific_parameters().is_empty());
+
+        // Additional Length covering the bytes after byte 95
+        buf[4] = 94;
+        let (inquiry, rest) = command().parse(&buf).unwrap();
+        assert!(rest.is_empty());
+        assert_eq!(inquiry.vendor_specific_parameters(), [0xEE; 3]);
+    }
+
+    #[test]
+    fn cut_response_returns_what_is_present() {
+        let mut buf = response::<61>(91);
+        buf[36..56].fill(0xAA);
+        buf[56] = 0b0010; // QAS
+        buf[58..61].copy_from_slice(&[0x00, 0x60, 0x04]);
+
+        let (inquiry, rest) = command().parse(&buf).unwrap();
+        assert!(rest.is_empty());
+        assert_eq!(inquiry.vendor_specific(), [0xAA; 20]);
+        assert_eq!(
+            inquiry.clocking().map(Bits::get),
+            Some(Ok(Clocking::StOnly))
+        );
+        assert_eq!(inquiry.quick_arbitration_and_selection(), Some(true));
+        assert_eq!(inquiry.information_units_supported(), Some(false));
+        // The second Version Descriptor is cut short
+        assert_eq!(inquiry.version_descriptors(), [VersionDescriptor::SAM_3]);
+        assert!(inquiry.vendor_specific_parameters().is_empty());
+
+        // Cut within the Vendor Specific bytes
+        let (inquiry, _) = command().parse(&buf[..40]).unwrap();
+        assert_eq!(inquiry.vendor_specific(), [0xAA; 4]);
+        assert!(inquiry.clocking().is_none());
+        assert!(inquiry.version_descriptors().is_empty());
+    }
+
+    #[test]
+    fn additional_length_below_minimum_still_reads_the_first_36_bytes() {
+        let mut buf = response::<40>(20);
+        buf[36..].fill(0xEE);
+
+        let (inquiry, rest) = command().parse(&buf).unwrap();
+        assert_eq!(rest, [0xEE; 4]);
+        assert_eq!(inquiry.additional_length(), 20);
+        assert_eq!(inquiry.product_revision_level().as_bytes(), b"1.00");
+        assert!(inquiry.vendor_specific().is_empty());
+    }
+
+    #[test]
+    fn direct_cast_is_cut_to_additional_length() {
+        let mut buf = response::<60>(31);
+        buf[36..].fill(0xAA);
+
+        let inquiry = StandardInquiry::ref_from_bytes(&buf).unwrap();
+        assert!(inquiry.vendor_specific().is_empty());
+        assert!(inquiry.clocking().is_none());
+
+        // Casting directly skips the Response Data Format check
+        buf[3] = 0x01;
+        let inquiry = StandardInquiry::ref_from_bytes(&buf).unwrap();
+        assert_eq!(inquiry.response_data_format(), u4::new(1));
+    }
+
+    #[test]
+    fn writes_reach_the_original_buffer() {
+        // A device that reports the obsolete Response Data Format 1h
+        let mut buf = response::<36>(31);
+        buf[3] = 0x01;
+        assert!(command().parse(&buf).is_err());
+
+        let inquiry = StandardInquiry::mut_from_bytes(&mut buf).unwrap();
+        inquiry.as_mut_bytes()[3] = 0x02;
+
+        assert_eq!(buf[3], 0x02);
+        assert!(command().parse(&buf).is_ok());
+    }
 }

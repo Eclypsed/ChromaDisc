@@ -153,7 +153,7 @@ impl fmt::Debug for UnvalidatedBcdMsf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "UnvalidatedBcdMsf({:#02X},{:#02X},{:#02X})",
+            "UnvalidatedBcdMsf({:#0X},{:#0X},{:#0X})",
             self.0[0], self.0[1], self.0[2]
         )
     }

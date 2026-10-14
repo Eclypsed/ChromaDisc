@@ -290,7 +290,7 @@ fn collect_entries(attrs: &[Attribute]) -> syn::Result<Vec<Entry>> {
         }
         let parser = Punctuated::<Entry, Token![,]>::parse_terminated;
         let entries = attr.parse_args_with(parser)?;
-        out.extend(entries.into_iter());
+        out.extend(entries);
     }
     Ok(out)
 }

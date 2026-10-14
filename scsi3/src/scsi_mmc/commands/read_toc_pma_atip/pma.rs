@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 use arbitrary_int::u4;
 use thiserror::Error;
 
@@ -9,7 +8,7 @@ use crate::{
 };
 
 const PMA_MIN_BYTES: usize = 4;
-const TRACK_DESCRIPTOR_SIZE: usize = 11;
+// const TRACK_DESCRIPTOR_SIZE: usize = 11;
 
 #[derive(Debug, Error)]
 pub enum PmaError {
@@ -19,7 +18,7 @@ pub enum PmaError {
 
 impl ReadCommand<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<Pma> {
     type Len = u16;
-    type Response<'a> = Pma;
+    type Response<'a> = &'a Pma;
     type Error = PmaError;
 
     fn response_len(&self) -> Self::Len {
@@ -31,35 +30,36 @@ impl ReadCommand<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<Pma> {
             return Err(TruncationError(buf.len()).into());
         }
 
-        let toc_data_length: usize = u16::from_be_bytes([buf[0], buf[1]]).into();
+        todo!()
+        // let toc_data_length: usize = u16::from_be_bytes([buf[0], buf[1]]).into();
+        //
+        // let max_bytes = buf.len().min(toc_data_length - 2);
+        // let desc_bytes = buf.get(4..max_bytes).unwrap_or_default();
 
-        let max_bytes = buf.len().min(toc_data_length - 2);
-        let desc_bytes = buf.get(4..max_bytes).unwrap_or_default();
+        // let pma_descriptors = desc_bytes
+        //     .chunks_exact(TRACK_DESCRIPTOR_SIZE)
+        //     .map(|chunk| PmaDescriptor {
+        //         adr: u4::extract_u8(chunk[1], 4),
+        //         control: q_subcode::Control::from_bits_truncate(chunk[1] & 0xF),
+        //         tno: chunk[2],
+        //         point: chunk[3],
+        //         min: chunk[4],
+        //         sec: chunk[5],
+        //         frame: chunk[6],
+        //         zero: chunk[7],
+        //         pmin: chunk[8],
+        //         psec: chunk[9],
+        //         pframe: chunk[10],
+        //     })
+        //     .collect::<Vec<_>>();
 
-        let pma_descriptors = desc_bytes
-            .chunks_exact(TRACK_DESCRIPTOR_SIZE)
-            .map(|chunk| PmaDescriptor {
-                adr: u4::extract_u8(chunk[1], 4),
-                control: q_subcode::Control::from_bits_truncate(chunk[1] & 0xF),
-                tno: chunk[2],
-                point: chunk[3],
-                min: chunk[4],
-                sec: chunk[5],
-                frame: chunk[6],
-                zero: chunk[7],
-                pmin: chunk[8],
-                psec: chunk[9],
-                pframe: chunk[10],
-            })
-            .collect::<Vec<_>>();
-
-        Ok(Pma { pma_descriptors })
+        // Ok(Pma { pma_descriptors })
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct Pma {
-    pub pma_descriptors: Vec<PmaDescriptor>,
+    pub pma_descriptors: [PmaDescriptor],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

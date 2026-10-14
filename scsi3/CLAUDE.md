@@ -31,7 +31,7 @@ The crate is fragmented at the moment. Some modules predate the patterns below a
   - They have const `from_u16`/`into_u16` methods, not derive_more `From`/`Into`, which aren't const.
   - Values the spec names are associated consts.
   - Debug prints hex with the spec's `h` suffix, e.g. `ProfileNumber(0008h)`.
-- **Layout fields are private.** They are read through `#[inline] pub const fn` accessors, with the `bit!` macro for single bits (`features/mod.rs`).
+- **Layout fields are private.** They are read through `#[inline] pub const fn` accessors, with the `bit!` macro for single bits (`scsi_core/util.rs`).
 
 ## Commands
 
@@ -66,5 +66,5 @@ The crate is fragmented at the moment. Some modules predate the patterns below a
   - No `Default`, since `FromZeros::new_zeroed` exists. No `Ord` on layouts.
   - Equality and hashing compare all the bytes, reserved ones included.
 - **Debug:**
-  - It prints the decoded values the accessors return, not the raw fields (`debug_fields!` in `features/mod.rs`).
+  - It prints the decoded values the accessors return, not the raw fields (`debug_fields!` in `scsi_core/util.rs`).
   - Write list formatting inline with `fmt::from_fn`, not through a helper type.

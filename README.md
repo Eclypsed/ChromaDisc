@@ -21,6 +21,7 @@ As for my personal stance, if you have met me you almost certainly know how I fe
 5. Finding bugs: Arguably its best use-case, it is very good at reading many source files and finding bugs before testing does.
 
 **My Approach**
+
 In my experience, AI-development tools really want you to take the approach of throwing together a complete high-level plan and then have an agent do the rest of the coding, testing, etc. hands-off for you (because that's the approach that sells their narrative). I find that this almost always results in complete slop. If you genuinely put "don't come back until done" or "make no mistakes" at the end of your prompts, we probably won't get along.
 
 I always use the latest programming-focused models, and despite this, the only circumstances under which an AI is able to achieve a result that I am satisfied with is with me rigorously guiding it through every detail. Oftentimes, I will arrive at my optimal solution myself before the AI does, just as a result of talking through the problem.

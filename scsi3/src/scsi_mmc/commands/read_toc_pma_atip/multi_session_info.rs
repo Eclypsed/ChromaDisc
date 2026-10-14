@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 use arbitrary_int::u4;
 use derive_where::derive_where;
 use thiserror::Error;
@@ -24,7 +23,7 @@ impl<A: TrackStartAddress> ReadCommand<ReadTocPmaAtipOpCode>
     for ReadTocPmaAtip<MultiSessionInformation<A>>
 {
     type Len = u16;
-    type Response<'a> = MultiSessionInformation<A>;
+    type Response<'a> = &'a MultiSessionInformation<A>;
     type Error = MultiSessionInformationError;
 
     fn response_len(&self) -> Self::Len {
@@ -65,11 +64,11 @@ impl<A: TrackStartAddress> ReadCommand<ReadTocPmaAtipOpCode>
     }
 }
 
-#[derive_where(Debug, Clone, PartialEq, Eq, Hash; A::ResponseAddressType)]
+#[derive_where(PartialEq, Eq, Hash; A::ResponseAddressType)]
 pub struct MultiSessionInformation<A: TrackStartAddress> {
     pub first_complete_session_number: u8,
     pub last_complete_session_number: u8,
-    pub toc_track_descriptors: Vec<TocTrackDescriptor<A>>,
+    pub toc_track_descriptors: [TocTrackDescriptor<A>],
 }
 
 #[derive_where(Debug, Clone, PartialEq, Eq, Hash; A::ResponseAddressType)]

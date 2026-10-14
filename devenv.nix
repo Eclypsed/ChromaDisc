@@ -10,6 +10,8 @@
     pkg-config
     glibc
     llvmPackages.libclang
+    bacon
+    cargo-nextest
   ];
 
   # https://devenv.sh/languages/

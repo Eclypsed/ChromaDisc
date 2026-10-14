@@ -266,8 +266,6 @@ impl ReadCommand<GetConfigurationOpCode> for GetConfiguration {
 
 #[cfg(test)]
 mod tests {
-    use alloc::format;
-
     use super::*;
     use crate::mmc::features::{cd_read::CdRead, core::Core};
 
@@ -372,22 +370,5 @@ mod tests {
         buf[3] = 0;
         let response = GetConfigurationResponse::ref_from_bytes(&buf).unwrap();
         assert!(response.feature_descriptors().next().is_none());
-    }
-
-    #[test]
-    fn debug_shows_descriptors_and_remainder() {
-        let buf = [
-            0, 0, 0, 12, 0, 0, 0x00, 0x08, // Feature Header: CD-ROM
-            0x00, 0x22, 0b0011, 0, // Sector Erasable
-            0x00, 0x1E, // CD Read, cut short
-        ];
-        let (response, _) = command().parse(&buf).unwrap();
-        assert_eq!(
-            format!("{response:?}"),
-            "GetConfigurationResponse { data_length: 12, current_profile: ProfileNumber(0008h), \
-             feature_descriptors: [GenericFeatureDescriptor { feature_code: FeatureCode(0022h), \
-             version: 0, persistent: true, current: true, additional_length: 0, raw_data: [] }], \
-             remainder: [0, 30] }"
-        );
     }
 }

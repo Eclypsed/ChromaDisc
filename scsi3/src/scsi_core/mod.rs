@@ -14,6 +14,8 @@ mod private {
 pub(super) type Cdb<const N: usize> = [u8; N];
 pub struct OpCode<const N: u8>;
 
+// Could probably un-seal OpCodeDef in the future so users can implement
+// vendor-specific opcodes
 pub trait OpCodeDef: private::Sealed {
     /// OPERATION CODE for valid SCSI commands
     /// ```text

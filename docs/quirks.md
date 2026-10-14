@@ -108,3 +108,28 @@ The persistence implies that repeated reads of the same LBA are served from cach
 - When reading CD-DA with sub-channel, check that Q's absolute time matches the requested LBA.
 
 **If it recurs:** record the exact command sequence leading up to it.
+
+## INQUIRY
+
+### 5. Version 00h, and byte 3 is 32h
+
+**Status:** Open. Whether byte 3 bits 5–4 are NORMACA and HISUP or part of an ATAPI version is unknown.
+**Commands:** INQUIRY (`0x12`), standard INQUIRY data.
+
+**Spec (spc7r05):** a VERSION of 00h means the device claims conformance to no standard. In byte 3, bits 7–6 are reserved, bit 5 is NORMACA, bit 4 is HISUP, and bits 3–0 are RESPONSE DATA FORMAT, which shall be 2h.
+
+**Spec (SFF-8020i r2.6):** byte 3 bits 7–4 are the ATAPI version, which shall be 2, and bits 3–0 are the Response Data Format, which shall be 1h.
+
+**Observed:** byte 2 (VERSION) is `00h` and byte 3 is `32h`. The Response Data Format is 2h, as SPC requires, so `parse` accepts the response. Bits 7–4 can be read two ways:
+
+- **As SPC:** NORMACA and HISUP are both set.
+- **As SFF-8020i:** the ATAPI version is 3, not the 2 that r2.6 requires.
+
+**Transport:** these values came through the USB–SATA bridge, so libata wasn't involved. The vendor-specific bytes hold the drive's firmware date, which suggests the bridge passes INQUIRY through rather than answering it. Not tested on a native SATA port. There, Linux libata rewrites bytes 2–3 to `05h` and `32h` whenever byte 2 is `00h` (`atapi_fixup_inquiry` in `drivers/ata/libata-scsi.c`), so the drive's own values wouldn't be visible.
+
+**Workaround:** none yet. Until this is resolved, don't rely on NORMACA or HISUP from this drive.
+
+**To resolve:** send TEST UNIT READY with NACA set in the CONTROL byte. First make sure a plain TEST UNIT READY returns GOOD, with a disc loaded and no pending unit attention. If the drive really supports ACA, a CHECK CONDITION with NACA set would put it in ACA, which may not be clearable through the bridge without a reset.
+
+- If it's rejected with ILLEGAL REQUEST, INVALID FIELD IN CDB, NORMACA = 1 is wrong, which supports the SFF-8020i reading.
+- If it's accepted, the test is inconclusive, since a drive that ignores the CONTROL byte would accept it too.

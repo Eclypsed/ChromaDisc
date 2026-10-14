@@ -3,6 +3,7 @@ use core::marker::PhantomData;
 use crate::core::{Command, Control, OpCode, OpCodeDef, ReadCommand};
 
 pub mod standard_inquiry;
+pub mod version_descriptor;
 
 mod private {
     pub trait VpdPageSeal {}
@@ -44,13 +45,13 @@ impl<T: OpCodeDef> private::InquirySeal for OpCodeInquiry<T> {
 }
 impl<T: OpCodeDef> InquiryType for OpCodeInquiry<T> {}
 
-pub struct Inquiry<T: InquiryType> {
+pub struct Inquiry<T: InquiryType + ?Sized> {
     _page_code_marker: PhantomData<T>,
     allocation_length: u16,
     control: Control,
 }
 
-impl<T: InquiryType> Inquiry<T> {
+impl<T: InquiryType + ?Sized> Inquiry<T> {
     pub fn new(allocation_length: u16, control: Control) -> Self {
         Self {
             _page_code_marker: PhantomData,
@@ -62,7 +63,7 @@ impl<T: InquiryType> Inquiry<T> {
 
 type InquiryOpCode = OpCode<0x12>;
 
-impl<T: InquiryType> Command<InquiryOpCode> for Inquiry<T> {
+impl<T: InquiryType + ?Sized> Command<InquiryOpCode> for Inquiry<T> {
     fn as_cdb(&self) -> <InquiryOpCode as OpCodeDef>::Cdb {
         [
             InquiryOpCode::OP_CODE,
