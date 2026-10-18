@@ -1,5 +1,5 @@
 use arbitrary_int::u2;
-use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16};
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, U16, Unaligned};
 
 /// BD Write (0041h): the ability to write control structures and user data to certain BD discs.
 ///

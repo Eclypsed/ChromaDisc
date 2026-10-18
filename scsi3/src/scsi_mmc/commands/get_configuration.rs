@@ -2,7 +2,7 @@ use core::{fmt, iter::FusedIterator};
 
 use thiserror::Error;
 use zerocopy::{
-    BigEndian, CastError, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U32,
+    BigEndian, CastError, FromBytes, Immutable, IntoBytes, KnownLayout, U32, Unaligned,
 };
 
 use crate::{

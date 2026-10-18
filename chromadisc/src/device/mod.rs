@@ -5,7 +5,7 @@ use std::{fs, io};
 
 use array_concat::*;
 use const_format::concatcp;
-use nix::fcntl::{open, OFlag};
+use nix::fcntl::{OFlag, open};
 use seq_macro::seq;
 
 macro_rules! device_files {

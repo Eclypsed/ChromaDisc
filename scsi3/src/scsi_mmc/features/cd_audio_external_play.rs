@@ -1,4 +1,4 @@
-use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16};
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, U16, Unaligned};
 
 /// CD Audio External Play (0103h): the ability to play audio CDs via the Logical Unit's own analog
 /// output.

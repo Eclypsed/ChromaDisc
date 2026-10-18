@@ -250,11 +250,7 @@ fn repr_adapters(repr: &Type, kind: &ReprKind, primitive: &Ident) -> (TokenStrea
 
 // -- match arms -------------------------------------------------------------
 
-fn build_match_arms(
-    variants: &[AnalysedVariant],
-    enum_name: &Ident,
-    width: u32,
-) -> TokenStream {
+fn build_match_arms(variants: &[AnalysedVariant], enum_name: &Ident, width: u32) -> TokenStream {
     let mut arms = TokenStream::new();
     let mut first = true;
 
@@ -305,7 +301,11 @@ fn build_variant_pattern(v: &AnalysedVariant, width: u32) -> TokenStream {
         return quote! { #disc_lit };
     };
 
-    let max = if width == 128 { u128::MAX } else { (1u128 << width) - 1 };
+    let max = if width == 128 {
+        u128::MAX
+    } else {
+        (1u128 << width) - 1
+    };
     let cases = flatten_or_toplevel(alt);
     let (merged, kept) = merge_contiguous(disc_val, cases, width, max);
 
@@ -333,11 +333,7 @@ fn build_variant_pattern(v: &AnalysedVariant, width: u32) -> TokenStream {
 /// Non-`Or` patterns become a single-element list.
 fn flatten_or_toplevel(pat: &Pat) -> Vec<Pat> {
     match pat {
-        Pat::Or(pat_or) => pat_or
-            .cases
-            .iter()
-            .flat_map(flatten_or_toplevel)
-            .collect(),
+        Pat::Or(pat_or) => pat_or.cases.iter().flat_map(flatten_or_toplevel).collect(),
         Pat::Paren(paren) => flatten_or_toplevel(&paren.pat),
         other => vec![other.clone()],
     }
@@ -380,11 +376,7 @@ fn merge_contiguous(
 
 fn single_interval(pat: &Pat, width: u32, max: u128) -> Option<(u128, u128)> {
     let ivs = intervals_from_pat(pat, width, max).ok()?;
-    if ivs.len() == 1 {
-        Some(ivs[0])
-    } else {
-        None
-    }
+    if ivs.len() == 1 { Some(ivs[0]) } else { None }
 }
 
 /// A wildcard `_ => None` is needed when:

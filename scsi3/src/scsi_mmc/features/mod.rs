@@ -4,7 +4,7 @@ use ::core::{fmt, hash::{Hash, Hasher}};
 use arbitrary_int::u4;
 use derive_more::Debug;
 use zerocopy::{
-    BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, TryFromBytes, Unalign, Unaligned, U16,
+    BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, TryFromBytes, U16, Unalign, Unaligned,
 };
 
 use crate::core::util::{bit, debug_fields};
@@ -638,11 +638,13 @@ mod tests {
     #[test]
     fn feature_without_data() {
         let buf = [0x00, 0x22, 0b0011, 0];
-        assert!(descriptor(&buf)
-            .get::<SectorErasable>()
-            .unwrap()
-            .data()
-            .is_some());
+        assert!(
+            descriptor(&buf)
+                .get::<SectorErasable>()
+                .unwrap()
+                .data()
+                .is_some()
+        );
     }
 
     #[test]
@@ -797,11 +799,13 @@ mod tests {
         core.as_mut_bytes()[4] |= 1;
 
         assert_eq!(buf[8], 1);
-        assert!(descriptor(&buf)
-            .get::<Core>()
-            .unwrap()
-            .data()
-            .unwrap()
-            .device_busy_event());
+        assert!(
+            descriptor(&buf)
+                .get::<Core>()
+                .unwrap()
+                .data()
+                .unwrap()
+                .device_busy_event()
+        );
     }
 }

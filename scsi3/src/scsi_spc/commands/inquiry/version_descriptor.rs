@@ -1,5 +1,5 @@
 use derive_more::Debug;
-use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16};
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, U16, Unaligned};
 
 /// A version descriptor: a standard the device claims conformance to.
 #[derive(

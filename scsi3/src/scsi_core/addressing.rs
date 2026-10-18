@@ -1,7 +1,7 @@
 use core::ops::{Add, AddAssign, Bound, RangeBounds, Sub, SubAssign};
 
 use derive_more::{Debug, Display};
-use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, I32};
+use zerocopy::{BigEndian, FromBytes, I32, Immutable, IntoBytes, KnownLayout, Unaligned};
 
 /// Newtype representing a Logical Block Address (LBA)
 ///

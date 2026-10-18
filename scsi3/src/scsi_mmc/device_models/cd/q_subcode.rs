@@ -62,7 +62,7 @@ bitflags! {
     }
 }
 
-use bcd::{bcd, Bcd};
+use bcd::{Bcd, bcd};
 use thiserror::Error;
 
 use crate::mmc::device_models::cd::addressing::Msf;

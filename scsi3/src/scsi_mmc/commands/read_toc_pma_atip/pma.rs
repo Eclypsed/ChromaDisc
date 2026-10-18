@@ -3,12 +3,12 @@ use core::fmt;
 use arbitrary_int::u4;
 use thiserror::Error;
 use zerocopy::{
-    BigEndian, CastError, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16,
+    BigEndian, CastError, FromBytes, Immutable, IntoBytes, KnownLayout, U16, Unaligned,
 };
 
 use super::{ReadTocPmaAtip, ReadTocPmaAtipOpCode};
 use crate::{
-    core::{util::debug_fields, ReadCommand, TruncationError},
+    core::{ReadCommand, TruncationError, util::debug_fields},
     mmc::device_models::cd::q_subcode,
 };
 

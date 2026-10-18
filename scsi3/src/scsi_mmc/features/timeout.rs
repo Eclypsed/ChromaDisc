@@ -1,4 +1,4 @@
-use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16};
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, U16, Unaligned};
 
 /// Timeout (0105h): the ability to respond to all commands within a specific time.
 ///

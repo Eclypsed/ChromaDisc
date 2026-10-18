@@ -3,7 +3,7 @@ use core::fmt;
 use arbitrary_int::u4;
 use thiserror::Error;
 use zerocopy::{
-    BigEndian, CastError, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16,
+    BigEndian, CastError, FromBytes, Immutable, IntoBytes, KnownLayout, U16, Unaligned,
 };
 
 use super::{ReadTocPmaAtip, ReadTocPmaAtipOpCode, TrackStartAddress};
@@ -155,7 +155,7 @@ impl<A: TrackStartAddress> TocTrackDescriptor<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{addressing::Lba, Control};
+    use crate::core::{Control, addressing::Lba};
 
     fn command() -> ReadTocPmaAtip<FormattedToc<Lba>> {
         ReadTocPmaAtip::formatted_toc(0, 0xFFFF, Control::default())

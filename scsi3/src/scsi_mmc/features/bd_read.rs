@@ -1,5 +1,5 @@
 use arbitrary_int::u2;
-use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16};
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, U16, Unaligned};
 
 /// BD Read (0040h): the ability to read control structures and user data from a BD disc.
 ///

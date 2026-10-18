@@ -3,16 +3,16 @@ use core::{fmt, mem::offset_of, num::NonZeroU16};
 use arbitrary_int::{u3, u4, u7};
 use thiserror::Error;
 use zerocopy::{
-    BigEndian, CastError, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16,
+    BigEndian, CastError, FromBytes, Immutable, IntoBytes, KnownLayout, U16, Unaligned,
 };
 
 use super::{ReadTocPmaAtip, ReadTocPmaAtipOpCode};
 use crate::{
     core::{
-        util::{bit, debug_fields},
         ReadCommand, TruncationError,
+        util::{bit, debug_fields},
     },
-    mmc::device_models::cd::cd_text::{crc, PackType},
+    mmc::device_models::cd::cd_text::{PackType, crc},
 };
 
 /// The length of the header that precedes the CD-TEXT Descriptors.

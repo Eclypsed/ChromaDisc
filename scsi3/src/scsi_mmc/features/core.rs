@@ -1,7 +1,7 @@
 use core::ops::RangeInclusive;
 
 use derive_more::Debug;
-use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U32};
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, U32, Unaligned};
 
 use super::FeatureDescriptor;
 

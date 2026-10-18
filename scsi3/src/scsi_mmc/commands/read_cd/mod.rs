@@ -2,9 +2,9 @@ use core::{convert::Infallible, marker::PhantomData};
 
 use crate::{
     core::{
+        Command, Control, OpCode, OpCodeDef, ReadCommand, ZcReadCommand,
         addressing::{Lba, Span},
         util::{Presence, Present},
-        Command, Control, OpCode, OpCodeDef, ReadCommand, ZcReadCommand,
     },
     mmc::device_models::cd::addressing::Msf,
 };
@@ -54,11 +54,11 @@ type ReadCdOpcode = OpCode<0xBE>;
 type ReadCdMsfOpcode = OpCode<0xB9>;
 
 impl<
-        M: main_channel::SectorMode,
-        L: main_channel::SelectionOf<M>,
-        C: c2::C2ErrorInfo,
-        S: sub_channel::SubChannelSelection,
-    > Command<ReadCdOpcode> for ReadCd<M, L, C, S>
+    M: main_channel::SectorMode,
+    L: main_channel::SelectionOf<M>,
+    C: c2::C2ErrorInfo,
+    S: sub_channel::SubChannelSelection,
+> Command<ReadCdOpcode> for ReadCd<M, L, C, S>
 {
     fn as_cdb(&self) -> <ReadCdOpcode as OpCodeDef>::Cdb {
         let lba_bytes: [u8; 4] = i32::from(self.starting_lba).to_be_bytes();
@@ -82,11 +82,11 @@ impl<
 }
 
 impl<
-        M: main_channel::SectorMode,
-        L: main_channel::SelectionOf<M>,
-        C: c2::C2ErrorInfo,
-        S: sub_channel::SubChannelSelection,
-    > Command<ReadCdMsfOpcode> for ReadCdMsf<M, L, C, S>
+    M: main_channel::SectorMode,
+    L: main_channel::SelectionOf<M>,
+    C: c2::C2ErrorInfo,
+    S: sub_channel::SubChannelSelection,
+> Command<ReadCdMsfOpcode> for ReadCdMsf<M, L, C, S>
 {
     fn as_cdb(&self) -> <ReadCdMsfOpcode as OpCodeDef>::Cdb {
         [
@@ -190,11 +190,11 @@ pub struct Transfer<
 }
 
 impl<
-        M: main_channel::SectorMode,
-        L: main_channel::SelectionOf<M>,
-        C: c2::C2ErrorInfo,
-        S: sub_channel::SubChannelSelection,
-    > Transfer<M, L, C, S>
+    M: main_channel::SectorMode,
+    L: main_channel::SelectionOf<M>,
+    C: c2::C2ErrorInfo,
+    S: sub_channel::SubChannelSelection,
+> Transfer<M, L, C, S>
 {
     #[inline]
     pub const fn main_channel(&self) -> &main_channel::MainChannel<M, L> {
@@ -208,11 +208,11 @@ impl<
 }
 
 impl<
-        M: main_channel::SectorMode,
-        L: main_channel::SelectionOf<M>,
-        C: c2::C2ErrorInfo<C2Presence = Present>,
-        S: sub_channel::SubChannelSelection,
-    > Transfer<M, L, C, S>
+    M: main_channel::SectorMode,
+    L: main_channel::SelectionOf<M>,
+    C: c2::C2ErrorInfo<C2Presence = Present>,
+    S: sub_channel::SubChannelSelection,
+> Transfer<M, L, C, S>
 {
     #[inline]
     pub const fn c2(&self) -> &C::C2Data {
@@ -226,11 +226,11 @@ impl<
 }
 
 impl<
-        M: main_channel::SectorMode,
-        L: main_channel::SelectionOf<M>,
-        C: c2::C2ErrorInfo,
-        S: sub_channel::SubChannelSelection<SubChannelPresence = Present>,
-    > Transfer<M, L, C, S>
+    M: main_channel::SectorMode,
+    L: main_channel::SelectionOf<M>,
+    C: c2::C2ErrorInfo,
+    S: sub_channel::SubChannelSelection<SubChannelPresence = Present>,
+> Transfer<M, L, C, S>
 {
     #[inline]
     pub const fn sub_channel(&self) -> &S::SubChannelData {
@@ -244,11 +244,11 @@ impl<
 }
 
 impl<
-        M: main_channel::SectorMode,
-        L: main_channel::SelectionOf<M>,
-        C: c2::C2ErrorInfo,
-        S: sub_channel::SubChannelSelection,
-    > ReadCommand<ReadCdOpcode> for ReadCd<M, L, C, S>
+    M: main_channel::SectorMode,
+    L: main_channel::SelectionOf<M>,
+    C: c2::C2ErrorInfo,
+    S: sub_channel::SubChannelSelection,
+> ReadCommand<ReadCdOpcode> for ReadCd<M, L, C, S>
 {
     type Len = u64;
     type Response<'a> = (&'a [Transfer<M, L, C, S>], &'a [u8]);
@@ -268,11 +268,11 @@ impl<
 }
 
 impl<
-        M: main_channel::SectorMode,
-        L: main_channel::SelectionOf<M>,
-        C: c2::C2ErrorInfo,
-        S: sub_channel::SubChannelSelection,
-    > ZcReadCommand<ReadCdOpcode> for ReadCd<M, L, C, S>
+    M: main_channel::SectorMode,
+    L: main_channel::SelectionOf<M>,
+    C: c2::C2ErrorInfo,
+    S: sub_channel::SubChannelSelection,
+> ZcReadCommand<ReadCdOpcode> for ReadCd<M, L, C, S>
 {
     type Response<B: SplitByteSlice> = (Ref<B, [Transfer<M, L, C, S>]>, B);
     type Error = Infallible;
@@ -287,11 +287,11 @@ impl<
 }
 
 impl<
-        M: main_channel::SectorMode,
-        L: main_channel::SelectionOf<M>,
-        C: c2::C2ErrorInfo,
-        S: sub_channel::SubChannelSelection,
-    > ReadCommand<ReadCdMsfOpcode> for ReadCdMsf<M, L, C, S>
+    M: main_channel::SectorMode,
+    L: main_channel::SelectionOf<M>,
+    C: c2::C2ErrorInfo,
+    S: sub_channel::SubChannelSelection,
+> ReadCommand<ReadCdMsfOpcode> for ReadCdMsf<M, L, C, S>
 {
     type Len = u64;
     type Response<'a> = (&'a [Transfer<M, L, C, S>], &'a [u8]);
@@ -312,11 +312,11 @@ impl<
 }
 
 impl<
-        M: main_channel::SectorMode,
-        L: main_channel::SelectionOf<M>,
-        C: c2::C2ErrorInfo,
-        S: sub_channel::SubChannelSelection,
-    > ZcReadCommand<ReadCdMsfOpcode> for ReadCdMsf<M, L, C, S>
+    M: main_channel::SectorMode,
+    L: main_channel::SelectionOf<M>,
+    C: c2::C2ErrorInfo,
+    S: sub_channel::SubChannelSelection,
+> ZcReadCommand<ReadCdMsfOpcode> for ReadCdMsf<M, L, C, S>
 {
     type Response<B: SplitByteSlice> = (Ref<B, [Transfer<M, L, C, S>]>, B);
     type Error = Infallible;

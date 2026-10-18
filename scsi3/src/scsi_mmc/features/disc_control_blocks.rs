@@ -1,5 +1,5 @@
 use derive_more::Debug;
-use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U32};
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, U32, Unaligned};
 
 /// Disc Control Blocks (010Ah): the ability to read and/or write DCBs.
 ///

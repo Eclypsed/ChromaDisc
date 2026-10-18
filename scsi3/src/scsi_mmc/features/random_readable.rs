@@ -1,4 +1,4 @@
-use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16, U32};
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, U16, U32, Unaligned};
 
 /// Random Readable (0010h): the ability to read sectors with random addressing.
 ///

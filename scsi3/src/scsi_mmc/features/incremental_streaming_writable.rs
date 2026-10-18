@@ -1,4 +1,4 @@
-use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16};
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, U16, Unaligned};
 
 /// Accessors for a Number of Link Sizes field followed by the Link Size entries and Pad bytes.
 macro_rules! link_sizes {

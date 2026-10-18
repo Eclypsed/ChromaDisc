@@ -1,4 +1,4 @@
-use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16};
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, U16, Unaligned};
 
 /// Enhanced Defect Reporting (0029h): the ability to control RECOVERED ERROR reporting.
 ///

@@ -17,9 +17,7 @@ ChromaDisc is written from scratch for reading optical discs. The long-term goal
 
 ## Conventions
 
-- **Formatting:** format only the files you touched, with `rustfmt --edition 2024 --config style_edition=2021 <file>`.
-  - Never run `cargo fmt`. It uses the 2024 style and would reorder imports in untouched files.
-  - Diff each file after formatting, and restore any line the user formatted by hand.
+- **Formatting:** run `cargo fmt`. `rustfmt.toml` sets the edition, and the pre-commit hook in `devenv.nix` runs `cargo fmt` on every commit.
 - **Checks:** `cargo nextest run -p scsi3`, `cargo clippy -p scsi3 --tests` and `cargo doc -p scsi3 --no-deps`.
   - Run tests with nextest (`devenv.nix` provides it), not `cargo test`.
   - nextest skips doctests. If a change adds or touches one, also run `cargo test -p scsi3 --doc`.

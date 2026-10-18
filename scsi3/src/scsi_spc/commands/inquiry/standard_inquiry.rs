@@ -4,12 +4,12 @@ use derive_more::Debug;
 use thiserror::Error;
 use zerocopy::{CastError, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-use super::{version_descriptor::VersionDescriptor, Inquiry, InquiryOpCode};
+use super::{Inquiry, InquiryOpCode, version_descriptor::VersionDescriptor};
 
 use crate::core::{
+    ReadCommand, TruncationError,
     ascii::UnvalidatedSizedAsciiStr,
     util::{bit, debug_fields},
-    ReadCommand, TruncationError,
 };
 
 /// The length of the fields every response holds, through Product Revision Level.

@@ -3,7 +3,7 @@ use core::fmt;
 use arbitrary_int::u4;
 use thiserror::Error;
 use zerocopy::{
-    BigEndian, CastError, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, U16,
+    BigEndian, CastError, FromBytes, Immutable, IntoBytes, KnownLayout, U16, Unaligned,
 };
 
 use super::{ReadTocPmaAtip, ReadTocPmaAtipOpCode, TrackStartAddress};

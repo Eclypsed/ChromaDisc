@@ -5,14 +5,13 @@ use core::{
 
 use arbitrary_int::u3;
 use derive_where::derive_where;
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, LittleEndian, Unaligned, U32};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, LittleEndian, U32, Unaligned};
 
 use crate::{
     core::util::{Absent, Presence, Present},
     mmc::device_models::cd::main_channel::{
-        edc,
+        DataMode, SYNC_PATTERN, SectorHeader, edc,
         mode2::{Mode2Form, Mode2FormedSubHeader},
-        DataMode, SectorHeader, SYNC_PATTERN,
     },
 };
 
@@ -182,9 +181,8 @@ impl<L: SelectionOf<Mode1, Sync = Present, Header = Present, UserData = Present>
     }
 }
 
-impl<
-        L: SelectionOf<Mode1, Sync = Present, Header = Present, UserData = Present, EdcEcc = Present>,
-    > MainChannel<Mode1, L>
+impl<L: SelectionOf<Mode1, Sync = Present, Header = Present, UserData = Present, EdcEcc = Present>>
+    MainChannel<Mode1, L>
 {
     #[inline]
     pub fn edc_matches(&self) -> bool {
@@ -229,7 +227,7 @@ impl<L: SelectionOf<Mode2Form2, SubHeader = Present, UserData = Present, EdcEcc 
 }
 
 pub mod selections {
-    use super::{sealed::SelectionSeal, Absent, Present, Selection};
+    use super::{Absent, Present, Selection, sealed::SelectionSeal};
 
     // ---- field lookups -------------------------------------------------------
     // Each answers "is <name> in this field list?" with Present or Absent.

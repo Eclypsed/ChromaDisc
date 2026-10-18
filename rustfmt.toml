@@ -1,0 +1,3 @@
+# Matches the workspace edition, so rustfmt run outside cargo (e.g. by an editor) formats the
+# same way as `cargo fmt`. The style edition follows the edition.
+edition = "2024"

@@ -4,27 +4,27 @@ use std::{
 };
 
 use scsi3::{
-    core::{addressing::Lba, util::Present, Command, Control, ReadCommand},
+    core::{Command, Control, ReadCommand, addressing::Lba, util::Present},
     mmc::{
         commands::{
             get_configuration::GetConfiguration,
             read_cd::{
+                Transfer,
                 c2::C2ErrorInfo,
                 main_channel::{MainChannel, SectorMode, SelectionOf},
                 sub_channel::SubChannelSelection,
-                Transfer,
             },
-            read_toc_pma_atip::{formatted_toc::FormattedToc, ReadTocPmaAtip},
+            read_toc_pma_atip::{ReadTocPmaAtip, formatted_toc::FormattedToc},
         },
         features::FeatureCode,
     },
-    spc::commands::inquiry::{standard_inquiry::StandardInquiry, Inquiry},
+    spc::commands::inquiry::{Inquiry, standard_inquiry::StandardInquiry},
 };
 use zerocopy::IntoBytes;
 
 use crate::{
-    device::{scan_sysfs, Drive},
-    transport::sgio::{run_sgio, DxferDirection},
+    device::{Drive, scan_sysfs},
+    transport::sgio::{DxferDirection, run_sgio},
 };
 
 pub mod device;

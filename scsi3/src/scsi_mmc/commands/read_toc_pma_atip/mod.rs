@@ -5,7 +5,7 @@ use derive_where::derive_where;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
 use crate::{
-    core::{addressing::Lba, Command, Control, OpCode, OpCodeDef},
+    core::{Command, Control, OpCode, OpCodeDef, addressing::Lba},
     mmc::device_models::ddcd::addressing::Hmsf,
 };
 
