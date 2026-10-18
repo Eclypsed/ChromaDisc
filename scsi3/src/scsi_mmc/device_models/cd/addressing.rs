@@ -125,6 +125,21 @@ impl UnvalidatedMsf {
     pub const fn new(minute: u8, second: u8, frame: u8) -> Self {
         Self([minute, second, frame])
     }
+
+    #[inline]
+    pub const fn minute(&self) -> u8 {
+        self.0[0]
+    }
+
+    #[inline]
+    pub const fn second(&self) -> u8 {
+        self.0[1]
+    }
+
+    #[inline]
+    pub const fn frame(&self) -> u8 {
+        self.0[2]
+    }
 }
 
 impl fmt::Debug for UnvalidatedMsf {

@@ -185,7 +185,8 @@ impl fmt::Debug for GetConfigurationResponse {
     }
 }
 
-/// The Feature Descriptors of a [`GetConfigurationResponse`], in the order the Drive returned them.
+/// The Feature Descriptors of a [`GetConfigurationResponse`], in the order they appear in the
+/// response.
 #[derive(Debug, Clone)]
 pub struct FeatureDescriptors<'a> {
     buf: &'a [u8],
@@ -240,23 +241,17 @@ impl ReadCommand<GetConfigurationOpCode> for GetConfiguration {
     /// still fall within Data Length, such as an allocated buffer's unused tail, are read as part
     /// of the response.
     fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
-        let buf_len = buf.len();
-
-        let Some(max_num_data_bytes) = buf_len.checked_sub(GET_CONFIGURATION_HEADER_LEN) else {
-            return Err(TruncationError(buf_len).into());
-        };
-
-        // Data Length counts the bytes following its own 4-byte field
-        let data_length = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
+        // Data Length counts the bytes following its own 4-byte field. A `buf` too short to hold
+        // it holds no Feature Descriptors either, so 0 stands in, and the cast reports the
+        // truncation.
+        let data_length = buf.first_chunk().map_or(0, |&len| u32::from_be_bytes(len));
         let elems = usize::try_from(data_length.saturating_sub(4))
             .unwrap_or(usize::MAX)
-            .min(max_num_data_bytes);
+            .min(buf.len().saturating_sub(GET_CONFIGURATION_HEADER_LEN));
 
         match GetConfigurationResponse::ref_from_prefix_with_elems(buf, elems) {
             Ok(res) => Ok(res),
-            Err(CastError::Size(_)) => {
-                unreachable!("`buf` should hold the Feature Header plus `elems` bytes")
-            }
+            Err(CastError::Size(_)) => Err(TruncationError(buf.len()).into()),
             Err(CastError::Alignment(_)) => {
                 unreachable!("`GetConfigurationResponse` should be `Unaligned`")
             }

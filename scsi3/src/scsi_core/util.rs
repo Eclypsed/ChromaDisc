@@ -2,17 +2,6 @@
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 
-pub trait Bit {
-    fn bit(self, n: u32) -> bool;
-}
-
-impl Bit for u8 {
-    #[inline]
-    fn bit(self, n: u32) -> bool {
-        (self & (1 << n)) != 0
-    }
-}
-
 macro_rules! bit {
     ($(#[$m:meta])* $name:ident: $field:ident[$bit:literal]) => {
         $(#[$m])*
@@ -38,18 +27,12 @@ macro_rules! debug_fields {
 
 pub(crate) use debug_fields;
 
-#[macro_export]
-macro_rules! bit_set {
-    ($byte:expr, $bit:literal) => {
-        (($byte & (1 << $bit)) != 0)
-    };
-}
-
-pub trait Zc: FromBytes + IntoBytes + Immutable + KnownLayout + Unaligned {}
-impl<T> Zc for T where T: FromBytes + IntoBytes + Immutable + KnownLayout + Unaligned {}
-
 pub trait Presence {
-    type Output<T: Zc>: Zc;
+    type Output<T: FromBytes + IntoBytes + Immutable + KnownLayout + Unaligned>: FromBytes
+        + IntoBytes
+        + Immutable
+        + KnownLayout
+        + Unaligned;
     const PRESENT: bool;
 }
 
@@ -57,11 +40,11 @@ pub struct Present;
 pub struct Absent;
 
 impl Presence for Present {
-    type Output<T: Zc> = T;
+    type Output<T: FromBytes + IntoBytes + Immutable + KnownLayout + Unaligned> = T;
     const PRESENT: bool = true;
 }
 
 impl Presence for Absent {
-    type Output<T: Zc> = ();
+    type Output<T: FromBytes + IntoBytes + Immutable + KnownLayout + Unaligned> = ();
     const PRESENT: bool = false;
 }

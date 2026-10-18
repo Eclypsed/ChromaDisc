@@ -5,14 +5,18 @@ use std::{
 
 use scsi3::{
     core::{addressing::Lba, util::Present, Command, Control, ReadCommand},
-    mmc::commands::{
-        read_cd::{
-            c2::C2ErrorInfo,
-            main_channel::{MainChannel, SectorMode, SelectionOf},
-            sub_channel::SubChannelSelection,
-            Transfer,
+    mmc::{
+        commands::{
+            get_configuration::GetConfiguration,
+            read_cd::{
+                c2::C2ErrorInfo,
+                main_channel::{MainChannel, SectorMode, SelectionOf},
+                sub_channel::SubChannelSelection,
+                Transfer,
+            },
+            read_toc_pma_atip::{formatted_toc::FormattedToc, ReadTocPmaAtip},
         },
-        read_toc_pma_atip::{formatted_toc::FormattedToc, ReadTocPmaAtip},
+        features::FeatureCode,
     },
     spc::commands::inquiry::{standard_inquiry::StandardInquiry, Inquiry},
 };
@@ -47,7 +51,8 @@ fn print_inquiry(fd: &OwnedFd) {
 
 #[allow(dead_code)]
 fn print_toc(fd: &OwnedFd) {
-    let toc_cmd = ReadTocPmaAtip::<FormattedToc<Lba>>::new(0, 1024 * 4, Control::default());
+    let toc_cmd =
+        ReadTocPmaAtip::<FormattedToc<Lba>>::formatted_toc(0, 1024 * 8, Control::default());
     let mut toc_buf = vec![0u8; toc_cmd.response_len().into()];
 
     let _toc_received = run_sgio(
@@ -62,22 +67,22 @@ fn print_toc(fd: &OwnedFd) {
     println!("TOC:\n{:#?}", toc);
 }
 
-// #[allow(dead_code)]
-// fn print_configuration(fd: &OwnedFd) {
-//     let cmd = GetConfiguration::all(FeatureCode::from_u16(0), 8096, Control::default());
-//     let mut buf = vec![0u8; cmd.response_len().into()];
+#[allow(dead_code)]
+fn print_configuration(fd: &OwnedFd) {
+    let cmd = GetConfiguration::all(FeatureCode::from_u16(0), 8096, Control::default());
+    let mut buf = vec![0u8; cmd.response_len().into()];
 
-//     let _received = run_sgio(
-//         fd.as_raw_fd(),
-//         cmd.as_cdb().as_mut_slice(),
-//         buf.as_mut_slice(),
-//         DxferDirection::FromDev,
-//     )
-//     .unwrap();
+    let _received = run_sgio(
+        fd.as_raw_fd(),
+        cmd.as_cdb().as_mut_slice(),
+        buf.as_mut_slice(),
+        DxferDirection::FromDev,
+    )
+    .unwrap();
 
-//     let (config, _rest) = cmd.parse(&buf).unwrap();
-//     println!("CONFIGURATION:\n{:#?}", config);
-// }
+    let (config, _rest) = cmd.parse(&buf).unwrap();
+    println!("CONFIGURATION:\n{:#?}", config);
+}
 
 // This works but is far less efficient than simply interpreting the data in a different
 // order i.e. Having a separate zc struct that has c2 after subchannel
@@ -108,8 +113,8 @@ fn main() -> io::Result<()> {
     let drive = Drive::new(devices[0].clone());
     let fd = drive.get_fd()?;
 
-    print_inquiry(&fd);
-    // print_toc(&fd);
+    // print_inquiry(&fd);
+    print_toc(&fd);
     // print_configuration(&fd);
 
     // TODO: Probably move this to a test

@@ -64,7 +64,6 @@ bitflags! {
 
 use bcd::{bcd, Bcd};
 use thiserror::Error;
-use tinystr::TinyAsciiStr;
 
 use crate::mmc::device_models::cd::addressing::Msf;
 
@@ -151,11 +150,6 @@ pub struct TrackPosition {
     pub absolute_time: Msf,
 }
 impl_dataq!(TrackPosition, 1);
-
-pub struct MediaCatalogNumber {
-    pub mcn: TinyAsciiStr<13>,
-    pub aframe: Bcd<1>,
-}
 
 // NOTE: Once you have all the qpayloads modeled out, don't just go an put them all in a big enum.
 // Make enums as needed like for RawToc. This lets you pick and choose which QPayloads are valid.

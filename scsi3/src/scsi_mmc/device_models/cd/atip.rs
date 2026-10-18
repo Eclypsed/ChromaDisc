@@ -248,7 +248,7 @@ pub mod cdr {
         pub const fn milliwatt(self) -> f32 {
             match self {
                 Self::W16_0 => 16.0,
-                Self::W18_0 => 16.0,
+                Self::W18_0 => 18.0,
                 Self::W20_0 => 20.0,
                 Self::W22_0 => 22.0,
                 Self::W24_0 => 24.0,
@@ -694,7 +694,7 @@ pub mod cdrw {
         }
 
         impl OptimumdTera {
-            pub const fn dt_top(self) -> i8 {
+            pub const fn dt_era(self) -> i8 {
                 match self {
                     Self::N0 => 0,
                     Self::NP1 => 1,
@@ -705,7 +705,7 @@ pub mod cdrw {
         }
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct WriteStrategyOptimization(OptimumdTtop, OptimumdTera);
+        pub struct WriteStrategyOptimization(pub OptimumdTtop, pub OptimumdTera);
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct SpecialInformation1 {
@@ -840,7 +840,7 @@ pub mod cdrw {
         }
 
         impl OptimumdTera {
-            pub const fn dt_top(self) -> i8 {
+            pub const fn dt_era(self) -> i8 {
                 match self {
                     Self::NN1 => -1,
                     Self::N0 => 0,
@@ -919,7 +919,7 @@ pub mod cdrw {
         }
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct WriteStrategyOptimization(OptimumdTtop, OptimumdTera);
+        pub struct WriteStrategyOptimization(pub OptimumdTtop, pub OptimumdTera);
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub struct SpecialInformation1 {

@@ -1,14 +1,5 @@
-use tinystr::UnvalidatedTinyAsciiStr;
+use crate::core::ascii::UnvalidatedSizedAsciiStr;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
-
-macro_rules! ascii_fields {
-    ($($field:ident),+ $(,)?) => {$(
-        #[inline]
-        pub const fn $field(&self) -> UnvalidatedTinyAsciiStr<2> {
-            UnvalidatedTinyAsciiStr::from_utf8_unchecked(self.$field)
-        }
-    )+};
-}
 
 /// Firmware Information (010Ch): the creation date of the Drive's firmware.
 ///
@@ -18,18 +9,51 @@ macro_rules! ascii_fields {
 )]
 #[repr(C)]
 pub struct FirmwareInformation {
-    century: [u8; 2],
-    year: [u8; 2],
-    month: [u8; 2],
-    day: [u8; 2],
-    hour: [u8; 2],
-    minute: [u8; 2],
-    second: [u8; 2],
+    century: UnvalidatedSizedAsciiStr<2>,
+    year: UnvalidatedSizedAsciiStr<2>,
+    month: UnvalidatedSizedAsciiStr<2>,
+    day: UnvalidatedSizedAsciiStr<2>,
+    hour: UnvalidatedSizedAsciiStr<2>,
+    minute: UnvalidatedSizedAsciiStr<2>,
+    second: UnvalidatedSizedAsciiStr<2>,
     _bytes18_19: [u8; 2],
 }
 
 impl FirmwareInformation {
-    ascii_fields!(century, year, month, day, hour, minute, second);
+    #[inline]
+    pub const fn century(&self) -> UnvalidatedSizedAsciiStr<2> {
+        self.century
+    }
+
+    #[inline]
+    pub const fn year(&self) -> UnvalidatedSizedAsciiStr<2> {
+        self.year
+    }
+
+    #[inline]
+    pub const fn month(&self) -> UnvalidatedSizedAsciiStr<2> {
+        self.month
+    }
+
+    #[inline]
+    pub const fn day(&self) -> UnvalidatedSizedAsciiStr<2> {
+        self.day
+    }
+
+    #[inline]
+    pub const fn hour(&self) -> UnvalidatedSizedAsciiStr<2> {
+        self.hour
+    }
+
+    #[inline]
+    pub const fn minute(&self) -> UnvalidatedSizedAsciiStr<2> {
+        self.minute
+    }
+
+    #[inline]
+    pub const fn second(&self) -> UnvalidatedSizedAsciiStr<2> {
+        self.second
+    }
 }
 
 super::debug_fields!(FirmwareInformation {

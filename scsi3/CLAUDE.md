@@ -1,9 +1,8 @@
 # scsi3 design guide
 
-This guide covers how scsi3 is meant to be used and the reasoning behind its design. Before adding a command or structure, look at the most up-to-date examples and follow the same patterns. Right now those are `scsi_mmc/features/` and `scsi_mmc/commands/get_configuration.rs`.
+This guide covers how scsi3 is meant to be used and the reasoning behind its design. Before adding a command or structure, look at the most up-to-date examples and follow the same patterns. Right now those are `scsi_mmc/features/`, `scsi_mmc/commands/get_configuration.rs`, and `scsi_mmc/commands/read_toc_pma_atip/` for a command that's generic over its response.
 
-The crate is fragmented at the moment. Some modules predate the patterns below and haven't been brought up to date yet, so check a module against this guide before copying from it. Known bugs in that older code:
-- The `parse` functions for the PMA, Raw TOC and CD-TEXT formats of READ TOC/PMA/ATIP cut the response at `toc_data_length - 2`. They should cut at `+ 2`, so they stop 4 bytes short, and the subtraction panics in debug builds when TOC Data Length is under 2.
+The crate is fragmented at the moment. Some modules predate the patterns below and haven't been brought up to date yet, so check a module against this guide before copying from it.
 
 ## What scsi3 is
 
@@ -11,7 +10,7 @@ The crate is fragmented at the moment. Some modules predate the patterns below a
   - Each directory (`scsi_core`, `scsi_spc`, `scsi_mmc`) is named after the crate it would become if scsi3 were split up.
   - `docs/references.md` lists the standard each one follows.
 - **Commands and responses only, no I/O.** scsi3 builds CDBs and parses responses. The transport owns the buffers, their sizes and the residual counts.
-- **It models what the spec says, not what particular drives do.** Drive quirks are the application's job (see `docs/quirks.md`). That's one reason responses are references into the caller's buffer: the application can inspect or fix the exact bytes the drive sent.
+- **It models what the spec says, not what particular drives do.** Drive quirks are the application's job (see `docs/quirks.md`). That's one reason responses are references into the caller's buffer: the application can inspect or fix the exact bytes a response was read from.
 - **It shows the caller what's there rather than guessing.** The library can't tell why data disagrees with itself. The drive may be misbehaving, the response may have been cut short, or the caller may have passed the wrong bytes. So it returns what's present, keeps the evidence visible, and saves errors for responses it can't read at all.
 - **Restrictions:** `#![no_std]` and `#![forbid(unsafe_code)]`. `alloc` is linked, but the goal is to stop needing it.
 - **The public API follows the spec's structure and names.**
@@ -24,6 +23,7 @@ The crate is fragmented at the moment. Some modules predate the patterns below a
 - **Responses are zerocopy casts over the caller's buffer.** They are `#[repr(C)]` structs deriving `FromBytes`, `KnownLayout`, `Immutable` and `Unaligned`.
   - `parse` reads a length field and casts, so parsing is O(1). Accessors decode the bits when called.
   - Nothing is copied, so a reference aliases the buffer, and a write through a `*_mut` accessor shows up everywhere. The caller decides when to copy.
+  - **A response is a view over `buf`, not proof of what the device sent.** Bytes the device didn't send, such as an untrimmed buffer's tail or padding a transport adds (quirk 2 in `docs/quirks.md`), are read like any others. `parse` guarantees only that every byte of `buf` is either in the response or in `rest`. Trimming `buf` to the transferred count, and comparing that count with the length field, is the application's job. Docs describe what a response holds, not what the Drive sent.
 - **Layouts keep every byte of the spec's table**, reserved bytes included (`_reserved`, `_bytes9_11`), so `size_of` matches the spec.
 - **Multi-byte fields are `U16`/`U32<BigEndian>`**, or newtypes over them. Every type is `Unaligned`, so the `CastError::Alignment` match arms are `unreachable!`.
 - **Value newtypes follow one shape** (e.g. `ProfileNumber` in `scsi_mmc/profiles.rs`):
@@ -38,8 +38,13 @@ The crate is fragmented at the moment. Some modules predate the patterns below a
 - **Traits:** a command is a struct holding the CDB inputs. It implements `Command<OpCode<N>>` (`as_cdb`) and `ReadCommand` (`response_len`, `parse`) from `scsi_core/mod.rs`.
 - **Generic or not:**
   - If a CDB field changes the response layout, make the command generic over the response, using sealed traits.
-  - If it doesn't, keep the command non-generic with a private enum and named constructors (`GetConfiguration::{all, current, single}`).
-- **`parse` returns `(&Response, &[u8])`:** the response cut to its own length field, plus every byte of `buf` after it. Nothing is discarded.
+  - If it doesn't, keep the command non-generic with a private enum.
+- **Named constructors:** name each constructor after what it requests, whether the command is generic (`ReadTocPmaAtip::{formatted_toc, pma, …}`) or not (`GetConfiguration::{all, current, single}`). For a generic command, unique names also let the response type be inferred.
+- **`parse` returns `(&Response, &[u8])`:** the response, plus every byte of `buf` that wasn't read into it, as in zerocopy's `*_from_prefix`. Nothing is discarded: a partial entry that a typed tail can't hold is left at the start of `rest`.
+- **`parse` fails only when `buf` can't hold the response's fixed part** (`TruncationError`).
+  - The error comes from the cast's `CastError::Size` arm, not a separate length check. Compute `elems` so it always fits once the fixed part does. When `buf` can't hold the length field, 0 stands in for it, so `elems` is 0 and the cast reports the truncation (`pma.rs`).
+  - A length field never causes an error. It only marks where a variable-length tail stops when `buf` is longer than the response, and a fixed-size response doesn't use it. Whether it matches what the device sent is for the application to judge, through the field's accessor.
+  - Other fields are shown, not checked. A format code the layout doesn't expect is for the caller to act on (`StandardInquiry::response_data_format`).
 
 ## Spec revisions
 
@@ -68,3 +73,13 @@ The crate is fragmented at the moment. Some modules predate the patterns below a
 - **Debug:**
   - It prints the decoded values the accessors return, not the raw fields (`debug_fields!` in `scsi_core/util.rs`).
   - Write list formatting inline with `fmt::from_fn`, not through a helper type.
+
+## Open questions
+
+- **A claimed-length accessor on every response.** It would return the length field plus the offset it counts from: the total number of bytes the device claims the response holds.
+  - **For:** an application checks a response by comparing that claim with the transferred count and with Allocation Length.
+    - Equal to the transferred count: consistent.
+    - Greater, with the transfer filling Allocation Length: Allocation Length was too small, so re-issue with a larger one. Length fields aren't cut by Allocation Length.
+    - Greater with a shorter transfer, or less than the transfer: the device or transport disagrees, and the application has to look into it.
+    - Where each length field counts from is spec knowledge that differs by format: 2 bytes for READ TOC/PMA/ATIP, 4 for GET CONFIGURATION, 5 for INQUIRY. Without the accessor, every application re-derives it for each format.
+  - **Against:** it has no counterpart in the spec, and "parsing machinery that has no counterpart in the spec stays private" (see "What scsi3 is").

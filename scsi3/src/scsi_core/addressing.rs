@@ -1,11 +1,12 @@
 use core::ops::{Add, AddAssign, Bound, RangeBounds, Sub, SubAssign};
 
-use derive_more::{Display, From, Into};
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+use derive_more::{Debug, Display};
+use zerocopy::{BigEndian, FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, I32};
 
 /// Newtype representing a Logical Block Address (LBA)
 ///
 /// The LBA is the number that a Host uses to reference Logical Blocks on a block storage device.
+/// It's stored big-endian, as SCSI transfers it, so it can be a field of a response layout.
 #[repr(transparent)]
 #[derive(
     Clone,
@@ -17,14 +18,39 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
     Eq,
     PartialOrd,
     Ord,
-    From,
-    Into,
     FromBytes,
     IntoBytes,
     KnownLayout,
     Immutable,
+    Unaligned,
 )]
-pub struct Lba(i32);
+pub struct Lba(#[debug("{_0}")] I32<BigEndian>);
+
+impl Lba {
+    #[inline]
+    pub const fn from_i32(lba: i32) -> Self {
+        Self(I32::new(lba))
+    }
+
+    #[inline]
+    pub const fn into_i32(self) -> i32 {
+        self.0.get()
+    }
+}
+
+impl From<i32> for Lba {
+    #[inline]
+    fn from(lba: i32) -> Self {
+        Self::from_i32(lba)
+    }
+}
+
+impl From<Lba> for i32 {
+    #[inline]
+    fn from(lba: Lba) -> Self {
+        lba.into_i32()
+    }
+}
 
 // macro_rules! lba {
 //     ($e:expr) => {
@@ -50,7 +76,7 @@ impl Add<i32> for Lba {
 
     #[inline]
     fn add(self, rhs: i32) -> Self::Output {
-        Self(self.0 + rhs)
+        Self::from_i32(self.into_i32() + rhs)
     }
 }
 
@@ -66,7 +92,7 @@ impl Sub<i32> for Lba {
 
     #[inline]
     fn sub(self, rhs: i32) -> Self::Output {
-        Self(self.0 - rhs)
+        Self::from_i32(self.into_i32() - rhs)
     }
 }
 

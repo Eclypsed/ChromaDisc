@@ -120,7 +120,7 @@ The persistence implies that repeated reads of the same LBA are served from cach
 
 **Spec (SFF-8020i r2.6):** byte 3 bits 7–4 are the ATAPI version, which shall be 2, and bits 3–0 are the Response Data Format, which shall be 1h.
 
-**Observed:** byte 2 (VERSION) is `00h` and byte 3 is `32h`. The Response Data Format is 2h, as SPC requires, so `parse` accepts the response. Bits 7–4 can be read two ways:
+**Observed:** byte 2 (VERSION) is `00h` and byte 3 is `32h`. The Response Data Format is 2h, as SPC requires. Bits 7–4 can be read two ways:
 
 - **As SPC:** NORMACA and HISUP are both set.
 - **As SFF-8020i:** the ATAPI version is 3, not the 2 that r2.6 requires.

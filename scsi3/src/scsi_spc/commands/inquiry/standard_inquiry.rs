@@ -14,7 +14,6 @@ use crate::core::{
 
 /// The length of the fields every response holds, through Product Revision Level.
 const STANDARD_INQUIRY_MIN_BYTES: usize = 36;
-const RESPONSE_DATA_FORMAT: u4 = u4::new(0x2);
 
 #[derive(Debug, Error)]
 pub enum StandardInquiryError {
@@ -23,15 +22,6 @@ pub enum StandardInquiryError {
     /// The standard INQUIRY data shall contain at least 36 bytes according to SCSI-2 through SPC-7.
     #[error(transparent)]
     Truncated(#[from] TruncationError<STANDARD_INQUIRY_MIN_BYTES>),
-    /// The error returned when a RESPONSE DATA FORMAT value other than 2h is encountered. Codes
-    /// less than 2h are obsolete as of SCSI-2 and are not supported by the library. Codes 3h-Fh
-    /// are reserved and will result in a breaking data structure change should they ever be
-    /// allocated.
-    ///
-    /// To read the response anyway, set the field to 2h in the buffer and parse again, or cast
-    /// the buffer to [`StandardInquiry`] directly.
-    #[error("Invalid Response Data Format value `{0:X}`, expected {RESPONSE_DATA_FORMAT:X}")]
-    InvalidResponseDataFormat(u4),
 }
 
 impl ReadCommand<InquiryOpCode> for Inquiry<StandardInquiry> {
@@ -49,35 +39,18 @@ impl ReadCommand<InquiryOpCode> for Inquiry<StandardInquiry> {
     /// transfer that still fall within Additional Length, such as an allocated buffer's unused
     /// tail, are read as part of the response.
     fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
-        let buf_len = buf.len();
-
-        let Some(max_num_additional_bytes) = buf_len.checked_sub(STANDARD_INQUIRY_MIN_BYTES) else {
-            return Err(TruncationError(buf_len).into());
-        };
-
-        // NOTE: SFF-8020i r2.6 requires a Response Data Format of 1h, with an ATAPI version of 2
-        // in bits 7-4, so an ATAPI device may report 1h here. Linux libata rewrites bytes 2-3 to
-        // 05h and 32h whenever an ATAPI device reports a Version of 0 (`atapi_fixup_inquiry` in
-        // drivers/ata/libata-scsi.c). The test drive reports 00h and 32h through a USB bridge
-        // (quirk 5 in docs/quirks.md).
-        let response_data_format = u4::extract_u8(buf[3], 0);
-        if response_data_format != RESPONSE_DATA_FORMAT {
-            return Err(StandardInquiryError::InvalidResponseDataFormat(
-                response_data_format,
-            ));
-        }
-
         // Additional Length counts the bytes following its own field, at byte 4. A value too
-        // small to cover the first 36 bytes still leaves them readable.
-        let elems = (usize::from(buf[4]) + 5)
+        // small to cover the first 36 bytes still leaves them readable. A `buf` too short to hold
+        // it holds no additional bytes either, so 0 stands in, and the cast reports the
+        // truncation.
+        let additional_length = buf.get(4).copied().unwrap_or(0);
+        let elems = (usize::from(additional_length) + 5)
             .saturating_sub(STANDARD_INQUIRY_MIN_BYTES)
-            .min(max_num_additional_bytes);
+            .min(buf.len().saturating_sub(STANDARD_INQUIRY_MIN_BYTES));
 
         match StandardInquiry::ref_from_prefix_with_elems(buf, elems) {
             Ok(res) => Ok(res),
-            Err(CastError::Size(_)) => {
-                unreachable!("`buf` should hold the first 36 bytes plus `elems` bytes")
-            }
+            Err(CastError::Size(_)) => Err(TruncationError(buf.len()).into()),
             Err(CastError::Alignment(_)) => {
                 unreachable!("`StandardInquiry` should be `Unaligned`")
             }
@@ -300,8 +273,7 @@ pub enum Clocking {
 /// those are optional, and their accessors return the part of them that's present, cut to
 /// Additional Length.
 ///
-/// [`parse`](ReadCommand::parse) rejects a Response Data Format other than 2h. Casting a buffer
-/// directly skips that check, and the accessors read the 2h format whatever the field holds.
+/// The accessors read Response Data Format 2h, whatever [`Self::response_data_format`] holds.
 // NOTE: As of spc7r05, AERC, TRMTSK, ACC, BQUE, MCHNGR, ACKREQQ, ADDR32, ADDR16, RELADR, WBUS32,
 // WBUS16, SYNC, LINKED, TRANDIS, CLOCKING, QAS and IUS are obsolete. Their accessors are documented
 // as obsolete and left out of `Debug`.
@@ -391,6 +363,13 @@ impl StandardInquiry {
     );
 
     /// 2h. Values below 2h are obsolete, and values above it are reserved.
+    ///
+    /// The accessors read the 2h format whatever this field holds.
+    // NOTE: SFF-8020i r2.6 requires a Response Data Format of 1h, with an ATAPI version of 2 in
+    // bits 7-4, so an ATAPI device may report 1h here. Linux libata rewrites bytes 2-3 to 05h and
+    // 32h whenever an ATAPI device reports a Version of 0 (`atapi_fixup_inquiry` in
+    // drivers/ata/libata-scsi.c). The test drive reports 00h and 32h through a USB bridge (quirk 5
+    // in docs/quirks.md).
     #[inline]
     pub const fn response_data_format(&self) -> u4 {
         u4::extract_u8(self.byte3, 0)
@@ -669,15 +648,12 @@ mod tests {
     }
 
     #[test]
-    fn response_data_format_other_than_2h_is_an_error() {
+    fn response_data_format_other_than_2h_is_read() {
         let mut buf = response::<36>(31);
         for byte3 in [0x01, 0x13] {
             buf[3] = byte3;
-            assert!(matches!(
-                command().parse(&buf),
-                Err(StandardInquiryError::InvalidResponseDataFormat(format))
-                    if format == u4::new(byte3 & 0x0F)
-            ));
+            let (inquiry, _) = command().parse(&buf).unwrap();
+            assert_eq!(inquiry.response_data_format(), u4::new(byte3 & 0x0F));
         }
     }
 
@@ -796,24 +772,18 @@ mod tests {
         let inquiry = StandardInquiry::ref_from_bytes(&buf).unwrap();
         assert!(inquiry.vendor_specific().is_empty());
         assert!(inquiry.clocking().is_none());
-
-        // Casting directly skips the Response Data Format check
-        buf[3] = 0x01;
-        let inquiry = StandardInquiry::ref_from_bytes(&buf).unwrap();
-        assert_eq!(inquiry.response_data_format(), u4::new(1));
     }
 
     #[test]
     fn writes_reach_the_original_buffer() {
-        // A device that reports the obsolete Response Data Format 1h
         let mut buf = response::<36>(31);
-        buf[3] = 0x01;
-        assert!(command().parse(&buf).is_err());
 
+        // Patch in the obsolete Response Data Format 1h
         let inquiry = StandardInquiry::mut_from_bytes(&mut buf).unwrap();
-        inquiry.as_mut_bytes()[3] = 0x02;
+        inquiry.as_mut_bytes()[3] = 0x01;
 
-        assert_eq!(buf[3], 0x02);
-        assert!(command().parse(&buf).is_ok());
+        assert_eq!(buf[3], 0x01);
+        let (inquiry, _) = command().parse(&buf).unwrap();
+        assert_eq!(inquiry.response_data_format(), u4::new(1));
     }
 }

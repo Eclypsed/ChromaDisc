@@ -5,7 +5,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
 /// A variable-length byte string that is expected to be ASCII but does not enforce that
 /// invariant.
 ///
-/// The unsized counterpart to [`tinystr::UnvalidatedTinyAsciiStr`], for ASCII fields whose length
+/// The unsized counterpart to [`UnvalidatedSizedAsciiStr`], for ASCII fields whose length
 /// is only known at runtime.
 #[derive(
     FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, PartialEq, Eq, PartialOrd, Ord, Hash,
