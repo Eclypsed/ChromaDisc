@@ -1,0 +1,5 @@
+# Commits that `git blame` skips. GitHub reads this file automatically. Locally, run:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Reformatted the workspace with the 2024 style edition
+2bb1246c32e010c99c60d53f1e9bc2a667988b7e
