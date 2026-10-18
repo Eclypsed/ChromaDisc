@@ -23,5 +23,9 @@
     "-I${pkgs.glibc.dev}/include"
   ];
 
+  git-hooks.hooks = {
+    rustfmt.enable = true;
+  };
+
   # See full reference at https://devenv.sh/reference/options/
 }
