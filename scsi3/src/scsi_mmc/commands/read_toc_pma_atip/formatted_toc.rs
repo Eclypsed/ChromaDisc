@@ -20,7 +20,7 @@ const FORMATTED_TOC_HEADER_LEN: usize = 4;
 pub enum FormattedTocError {
     /// The response is shorter than its header.
     #[error(transparent)]
-    Truncated(#[from] TruncationError<FORMATTED_TOC_HEADER_LEN>),
+    Truncated(#[from] TruncationError),
 }
 
 impl<A: TrackStartAddress> ReadCommand<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<FormattedToc<A>> {
@@ -49,7 +49,11 @@ impl<A: TrackStartAddress> ReadCommand<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<
 
         match FormattedToc::<A>::ref_from_prefix_with_elems(buf, elems) {
             Ok(res) => Ok(res),
-            Err(CastError::Size(_)) => Err(TruncationError(buf.len()).into()),
+            Err(CastError::Size(_)) => Err(TruncationError {
+                expected: FORMATTED_TOC_HEADER_LEN,
+                received: buf.len(),
+            }
+            .into()),
             Err(CastError::Alignment(_)) => unreachable!("`FormattedToc` should be `Unaligned`"),
         }
     }
@@ -188,7 +192,10 @@ mod tests {
     fn truncated_header_is_an_error() {
         assert!(matches!(
             command().parse(&[0; 3]),
-            Err(FormattedTocError::Truncated(TruncationError(3)))
+            Err(FormattedTocError::Truncated(TruncationError {
+                expected: 4,
+                received: 3
+            }))
         ));
     }
 }

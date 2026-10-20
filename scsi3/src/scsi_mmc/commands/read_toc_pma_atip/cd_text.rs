@@ -23,7 +23,7 @@ const CD_TEXT_HEADER_LEN: usize = 4;
 pub enum CdTextError {
     /// The response is shorter than its header.
     #[error(transparent)]
-    Truncated(#[from] TruncationError<CD_TEXT_HEADER_LEN>),
+    Truncated(#[from] TruncationError),
 }
 
 impl ReadCommand<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<CdText> {
@@ -53,7 +53,11 @@ impl ReadCommand<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<CdText> {
 
         match CdText::ref_from_prefix_with_elems(buf, elems) {
             Ok(res) => Ok(res),
-            Err(CastError::Size(_)) => Err(TruncationError(buf.len()).into()),
+            Err(CastError::Size(_)) => Err(TruncationError {
+                expected: CD_TEXT_HEADER_LEN,
+                received: buf.len(),
+            }
+            .into()),
             Err(CastError::Alignment(_)) => unreachable!("`CdText` should be `Unaligned`"),
         }
     }

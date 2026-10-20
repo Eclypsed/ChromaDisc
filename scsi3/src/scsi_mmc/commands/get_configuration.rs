@@ -118,7 +118,7 @@ const GET_CONFIGURATION_HEADER_LEN: usize = 8;
 pub enum GetConfigurationError {
     /// The response is shorter than the Feature Header.
     #[error(transparent)]
-    Truncated(#[from] TruncationError<GET_CONFIGURATION_HEADER_LEN>),
+    Truncated(#[from] TruncationError),
 }
 
 /// The response to GET CONFIGURATION: the Feature Header, then the Feature Descriptors.
@@ -251,7 +251,11 @@ impl ReadCommand<GetConfigurationOpCode> for GetConfiguration {
 
         match GetConfigurationResponse::ref_from_prefix_with_elems(buf, elems) {
             Ok(res) => Ok(res),
-            Err(CastError::Size(_)) => Err(TruncationError(buf.len()).into()),
+            Err(CastError::Size(_)) => Err(TruncationError {
+                expected: GET_CONFIGURATION_HEADER_LEN,
+                received: buf.len(),
+            }
+            .into()),
             Err(CastError::Alignment(_)) => {
                 unreachable!("`GetConfigurationResponse` should be `Unaligned`")
             }
@@ -272,7 +276,10 @@ mod tests {
     fn truncated_header_is_an_error() {
         assert!(matches!(
             command().parse(&[0; 7]),
-            Err(GetConfigurationError::Truncated(TruncationError(7)))
+            Err(GetConfigurationError::Truncated(TruncationError {
+                expected: 8,
+                received: 7
+            }))
         ));
     }
 

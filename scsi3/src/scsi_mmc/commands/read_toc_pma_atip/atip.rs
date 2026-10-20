@@ -20,15 +20,12 @@ use crate::{
     },
 };
 
-/// The length of the response, which ends after the A3 Values.
-const ATIP_LEN: usize = 28;
-
 /// Why an ATIP response couldn't be parsed.
 #[derive(Debug, Error)]
 pub enum AtipError {
     /// `buf` is shorter than the response's fixed length.
     #[error(transparent)]
-    Truncated(#[from] TruncationError<ATIP_LEN>),
+    Truncated(#[from] TruncationError),
 }
 
 impl ReadCommand<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<Atip> {
@@ -47,7 +44,11 @@ impl ReadCommand<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<Atip> {
     fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
         match Atip::ref_from_prefix(buf) {
             Ok(res) => Ok(res),
-            Err(CastError::Size(_)) => Err(TruncationError(buf.len()).into()),
+            Err(CastError::Size(_)) => Err(TruncationError {
+                expected: size_of::<Atip>(),
+                received: buf.len(),
+            }
+            .into()),
             Err(CastError::Alignment(_)) => unreachable!("`Atip` should be `Unaligned`"),
         }
     }

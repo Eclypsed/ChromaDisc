@@ -12,15 +12,12 @@ use crate::{
     mmc::device_models::cd::q_subcode,
 };
 
-/// The length of the response: the header plus its one TOC Track Descriptor.
-const MULTI_SESSION_INFORMATION_LEN: usize = 12;
-
 /// Why a Multi-session Information response couldn't be parsed.
 #[derive(Debug, Error)]
 pub enum MultiSessionInformationError {
     /// The response is shorter than its fixed length.
     #[error(transparent)]
-    Truncated(#[from] TruncationError<MULTI_SESSION_INFORMATION_LEN>),
+    Truncated(#[from] TruncationError),
 }
 
 impl<A: TrackStartAddress> ReadCommand<ReadTocPmaAtipOpCode>
@@ -41,7 +38,11 @@ impl<A: TrackStartAddress> ReadCommand<ReadTocPmaAtipOpCode>
     fn parse<'a>(&self, buf: &'a [u8]) -> Result<Self::Response<'a>, Self::Error> {
         match MultiSessionInformation::<A>::ref_from_prefix(buf) {
             Ok(res) => Ok(res),
-            Err(CastError::Size(_)) => Err(TruncationError(buf.len()).into()),
+            Err(CastError::Size(_)) => Err(TruncationError {
+                expected: size_of::<MultiSessionInformation<A>>(),
+                received: buf.len(),
+            }
+            .into()),
             Err(CastError::Alignment(_)) => {
                 unreachable!("`MultiSessionInformation` should be `Unaligned`")
             }

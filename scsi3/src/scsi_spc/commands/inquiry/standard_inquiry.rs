@@ -21,7 +21,7 @@ pub enum StandardInquiryError {
     ///
     /// The standard INQUIRY data shall contain at least 36 bytes according to SCSI-2 through SPC-7.
     #[error(transparent)]
-    Truncated(#[from] TruncationError<STANDARD_INQUIRY_MIN_BYTES>),
+    Truncated(#[from] TruncationError),
 }
 
 impl ReadCommand<InquiryOpCode> for Inquiry<StandardInquiry> {
@@ -50,7 +50,11 @@ impl ReadCommand<InquiryOpCode> for Inquiry<StandardInquiry> {
 
         match StandardInquiry::ref_from_prefix_with_elems(buf, elems) {
             Ok(res) => Ok(res),
-            Err(CastError::Size(_)) => Err(TruncationError(buf.len()).into()),
+            Err(CastError::Size(_)) => Err(TruncationError {
+                expected: STANDARD_INQUIRY_MIN_BYTES,
+                received: buf.len(),
+            }
+            .into()),
             Err(CastError::Alignment(_)) => {
                 unreachable!("`StandardInquiry` should be `Unaligned`")
             }
@@ -643,7 +647,10 @@ mod tests {
     fn truncated_response_is_an_error() {
         assert!(matches!(
             command().parse(&[0; 35]),
-            Err(StandardInquiryError::Truncated(TruncationError(35)))
+            Err(StandardInquiryError::Truncated(TruncationError {
+                expected: 36,
+                received: 35
+            }))
         ));
     }
 

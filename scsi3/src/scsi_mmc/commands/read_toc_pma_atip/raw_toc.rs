@@ -20,7 +20,7 @@ const RAW_TOC_HEADER_LEN: usize = 4;
 pub enum RawTocError {
     /// The response is shorter than its header.
     #[error(transparent)]
-    Truncated(#[from] TruncationError<RAW_TOC_HEADER_LEN>),
+    Truncated(#[from] TruncationError),
 }
 
 impl ReadCommand<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<RawToc> {
@@ -49,7 +49,11 @@ impl ReadCommand<ReadTocPmaAtipOpCode> for ReadTocPmaAtip<RawToc> {
 
         match RawToc::ref_from_prefix_with_elems(buf, elems) {
             Ok(res) => Ok(res),
-            Err(CastError::Size(_)) => Err(TruncationError(buf.len()).into()),
+            Err(CastError::Size(_)) => Err(TruncationError {
+                expected: RAW_TOC_HEADER_LEN,
+                received: buf.len(),
+            }
+            .into()),
             Err(CastError::Alignment(_)) => unreachable!("`RawToc` should be `Unaligned`"),
         }
     }

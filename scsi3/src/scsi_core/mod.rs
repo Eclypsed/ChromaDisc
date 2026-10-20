@@ -141,6 +141,13 @@ pub trait WriteCommand<O: OpCodeDef>: Command<O> {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, From, Into)]
 pub struct Control(u8);
 
-#[derive(Debug, Error)]
-#[error("Expected at least {EXPECTED_SIZE} bytes of data, received {0}")]
-pub struct TruncationError<const EXPECTED_SIZE: usize>(pub usize);
+/// `buf` is too short to hold the fixed part of a response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("Expected at least {expected} bytes of data, received {received}")]
+pub struct TruncationError {
+    /// The length of the fixed part: the whole response if it's sized, or its header if it has
+    /// a variable-length tail.
+    pub expected: usize,
+    /// The length of `buf`.
+    pub received: usize,
+}
