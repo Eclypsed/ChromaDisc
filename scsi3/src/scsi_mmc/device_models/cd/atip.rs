@@ -1,15 +1,16 @@
 use arbitrary_int::{u2, u3, u4, u7};
-use bitfield::BitsEnum;
-use derive_more::{From, Into};
+use bitfield::{Bits, BitsEnum};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned};
+
+use crate::core::util::{bit, debug_fields};
 
 /// A 3-bit value representing the different CD-R sub-types
 ///
 /// See CD-R System Description (Orange Book Part II Volume 1) §IV.4.1.5.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, BitsEnum)]
-#[bits(3, repr = u3)]
+#[bits(3, repr = u3, reserved = 0b001)]
 pub enum CdRSubtype {
     Normal = 0b000,
-    Reserved = 0b001,
     TypeALowBeta = 0b010,
     TypeAHighBeta = 0b011,
     TypeBLowBeta = 0b100,
@@ -31,7 +32,7 @@ pub enum CdRwSubtype {
     UltraSpeedPlus = 0b011,
 }
 
-/// A 7-bit value distiguishing between discs used for different applications
+/// A 7-bit value distinguishing between discs used for different applications
 ///
 /// See CD-R System Description (Orange Book Part II Volume 2) §4.4.1.3
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, BitsEnum)]
@@ -47,8 +48,25 @@ pub enum DiscApplicationCode {
 /// of disc.
 ///
 /// See CD-R System Description (Orange Book Part II Volume 2) §4.4.6.2
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From, Into)]
-pub struct MediaIdentificationCode(u16);
+#[derive(derive_more::Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MediaIdentificationCode(#[debug("{_0:04X}h")] u16);
+
+impl MediaIdentificationCode {
+    #[inline]
+    pub const fn from_u16(code: u16) -> Self {
+        Self(code)
+    }
+
+    #[inline]
+    pub const fn into_u16(self) -> u16 {
+        self.0
+    }
+
+    /// Reads the code from bits 4-0 of M, 6-0 of S and 6-3 of F, most significant first.
+    const fn from_section(m: u8, s: u8, f: u8) -> Self {
+        Self(((m as u16 & 0x1F) << 11) | ((s as u16 & 0x7F) << 4) | ((f as u16 >> 3) & 0x0F))
+    }
+}
 
 pub mod cdr {
     use core::ops::Range;
@@ -111,7 +129,7 @@ pub mod cdr {
         X48 = 0b1011,
     }
 
-    /// A 3-bit value representing a sub-class withing the Multi-Speed Recordable disc types
+    /// A 3-bit value representing a sub-class within the Multi-Speed Recordable disc types
     ///
     /// See CD-R System Description (Orange Book Part II Volume 2) §4.4.4.3
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, BitsEnum)]
@@ -120,7 +138,7 @@ pub mod cdr {
         CdrMultiSpeed = 0b000,
     }
 
-    /// A 2-bit value representing a sub-class withing the Multi-Speed Recordable disc types
+    /// A 2-bit value representing the optimum β range of the medium
     ///
     /// See CD-R System Description (Orange Book Part II Volume 2) §4.4.4.4
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, BitsEnum)]
@@ -300,7 +318,7 @@ pub mod cdr {
     }
 
     /// A 2-bit value that specifies the optimum Delta-T for each Write Pulse after an I3 Land for
-    ///  recording at the Highest Test Speed.
+    /// recording at the Highest Test Speed.
     ///
     /// See CD-R System Description (Orange Book Part II Volume 2) §4.4.5.4
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, BitsEnum)]
@@ -330,51 +348,192 @@ pub mod cdr {
     #[bits(2, repr = u2)]
     pub enum MediaTechnologyType {
         Cyanine = 0b00,
-        PhtaloCyanine = 0b01,
+        PhthaloCyanine = 0b01,
         Reserved = 0b10,
         Other = 0b11,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    /// Special Information 1 of a CD-R's ATIP.
+    #[derive(
+        FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+    )]
+    #[repr(C)]
     pub struct SpecialInformation1 {
-        pub target_writing_power: WritePowerReferenceSpeed,
-        pub reference_speed: ReferenceSpeed,
-
-        pub disc_application_code: DiscApplicationCode,
-
-        pub medium_type: CdRSubtype,
-        pub a1_valid: bool,
-        pub a2_valid: bool,
-        pub a3_valid: bool,
+        m: u8,
+        s: u8,
+        f: u8,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    impl SpecialInformation1 {
+        #[inline]
+        pub const fn indicative_optimum_writing_power(&self) -> Bits<WritePowerReferenceSpeed> {
+            Bits::new(u3::extract_u8(self.m, 4))
+        }
+
+        #[inline]
+        pub const fn reference_speed(&self) -> Bits<ReferenceSpeed> {
+            Bits::new(u3::extract_u8(self.m, 0))
+        }
+
+        #[inline]
+        pub const fn disc_application_code(&self) -> Bits<DiscApplicationCode> {
+            Bits::new(u7::extract_u8(self.s, 0))
+        }
+
+        #[inline]
+        pub const fn medium_type(&self) -> Bits<CdRSubtype> {
+            Bits::new(u3::extract_u8(self.f, 3))
+        }
+
+        bit!(a1_valid: f[2]);
+        bit!(a2_valid: f[1]);
+        bit!(a3_valid: f[0]);
+    }
+
+    debug_fields!(SpecialInformation1 {
+        indicative_optimum_writing_power,
+        reference_speed,
+        disc_application_code,
+        medium_type,
+        a1_valid,
+        a2_valid,
+        a3_valid,
+    });
+
+    /// Additional Information 1 of a CD-R's ATIP.
+    #[derive(
+        FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+    )]
+    #[repr(C)]
     pub struct AdditionalInformation1 {
-        pub lowest_test_speed: LowestTestSpeed,
-        pub highest_test_speed: HighestTestSpeed,
-
-        pub high_speed_subtype: HighSpeedSubtype,
-        pub optimum_beta_range: OptimumBetaRange,
-
-        pub optimum_pulse_length: OptimumPulseLength,
-        pub additional_capacity_len: AdditionalCapacityLength,
+        m: u8,
+        s: u8,
+        f: u8,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    impl AdditionalInformation1 {
+        #[inline]
+        pub const fn lowest_test_speed(&self) -> Bits<LowestTestSpeed> {
+            Bits::new(u3::extract_u8(self.m, 4))
+        }
+
+        #[inline]
+        pub const fn highest_test_speed(&self) -> Bits<HighestTestSpeed> {
+            Bits::new(u4::extract_u8(self.m, 0))
+        }
+
+        #[inline]
+        pub const fn high_speed_subtype(&self) -> Bits<HighSpeedSubtype> {
+            Bits::new(u3::extract_u8(self.s, 4))
+        }
+
+        #[inline]
+        pub const fn optimum_beta_range(&self) -> Bits<OptimumBetaRange> {
+            Bits::new(u2::extract_u8(self.s, 0))
+        }
+
+        #[inline]
+        pub const fn optimum_pulse_length(&self) -> Bits<OptimumPulseLength> {
+            Bits::new(u3::extract_u8(self.f, 4))
+        }
+
+        /// Length of Additional Capacity & Lead-out Area.
+        #[inline]
+        pub const fn length_of_additional_capacity_and_lead_out_area(
+            &self,
+        ) -> Bits<AdditionalCapacityLength> {
+            Bits::new(u4::extract_u8(self.f, 0))
+        }
+    }
+
+    debug_fields!(AdditionalInformation1 {
+        lowest_test_speed,
+        highest_test_speed,
+        high_speed_subtype,
+        optimum_beta_range,
+        optimum_pulse_length,
+        length_of_additional_capacity_and_lead_out_area,
+    });
+
+    /// Additional Information 2 of a CD-R's ATIP.
+    #[derive(
+        FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+    )]
+    #[repr(C)]
     pub struct AdditionalInformation2 {
-        pub writing_power_lowest_speed: WritePowerLowestTestSpeed,
-        pub writing_power_highest_speed: WritePowerHighestTestSpeed,
-
-        pub power_boost_i3_pits: PowerBoostI3,
-        pub pulse_length_correction_i3_lands: PulseLengthCorrectionI3,
+        m: u8,
+        s: u8,
+        _f: u8,
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    impl AdditionalInformation2 {
+        #[inline]
+        pub const fn indicative_optimum_writing_power_at_lowest_test_speed(
+            &self,
+        ) -> Bits<WritePowerLowestTestSpeed> {
+            Bits::new(u3::extract_u8(self.m, 4))
+        }
+
+        #[inline]
+        pub const fn indicative_optimum_writing_power_at_highest_test_speed(
+            &self,
+        ) -> Bits<WritePowerHighestTestSpeed> {
+            Bits::new(u4::extract_u8(self.m, 0))
+        }
+
+        #[inline]
+        pub const fn power_boost_for_i3_pits(&self) -> Bits<PowerBoostI3> {
+            Bits::new(u3::extract_u8(self.s, 4))
+        }
+
+        #[inline]
+        pub const fn pulse_length_correction_after_i3_lands(
+            &self,
+        ) -> Bits<PulseLengthCorrectionI3> {
+            Bits::new(u2::extract_u8(self.s, 2))
+        }
+    }
+
+    debug_fields!(AdditionalInformation2 {
+        indicative_optimum_writing_power_at_lowest_test_speed,
+        indicative_optimum_writing_power_at_highest_test_speed,
+        power_boost_for_i3_pits,
+        pulse_length_correction_after_i3_lands,
+    });
+
+    /// Additional Information 3 of a CD-R's ATIP.
+    #[derive(
+        FromBytes, IntoBytes, KnownLayout, Immutable, Unaligned, Clone, Copy, PartialEq, Eq, Hash,
+    )]
+    #[repr(C)]
     pub struct AdditionalInformation3 {
-        pub media_technology_type: MediaTechnologyType,
-        pub media_identification_code: MediaIdentificationCode,
-        pub product_revision_number: u3,
+        m: u8,
+        s: u8,
+        f: u8,
     }
+
+    impl AdditionalInformation3 {
+        #[inline]
+        pub const fn media_technology_type(&self) -> Bits<MediaTechnologyType> {
+            Bits::new(u2::extract_u8(self.m, 5))
+        }
+
+        #[inline]
+        pub const fn media_identification_code(&self) -> MediaIdentificationCode {
+            MediaIdentificationCode::from_section(self.m, self.s, self.f)
+        }
+
+        #[inline]
+        pub const fn product_revision_number(&self) -> u3 {
+            u3::extract_u8(self.f, 0)
+        }
+    }
+
+    debug_fields!(AdditionalInformation3 {
+        media_technology_type,
+        media_identification_code,
+        product_revision_number,
+    });
 }
 
 pub mod cdrw {
@@ -522,40 +681,198 @@ pub mod cdrw {
             }
         }
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        /// Special Information 1 of a Standard Speed CD-RW's ATIP.
+        #[derive(
+            FromBytes,
+            IntoBytes,
+            KnownLayout,
+            Immutable,
+            Unaligned,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+        )]
+        #[repr(C)]
         pub struct SpecialInformation1 {
-            pub target_writing_power: WritePowerReferenceSpeed,
-            pub reference_speed: ReferenceSpeed,
-
-            pub disc_application_code: DiscApplicationCode,
-
-            pub a1_valid: bool,
-            pub a2_valid: bool,
-            pub a3_valid: bool,
+            m: u8,
+            s: u8,
+            f: u8,
         }
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        impl SpecialInformation1 {
+            #[inline]
+            pub const fn indicative_target_writing_power_at_reference_speed(
+                &self,
+            ) -> Bits<WritePowerReferenceSpeed> {
+                Bits::new(u3::extract_u8(self.m, 4))
+            }
+
+            #[inline]
+            pub const fn reference_speed(&self) -> Bits<ReferenceSpeed> {
+                Bits::new(u3::extract_u8(self.m, 0))
+            }
+
+            #[inline]
+            pub const fn disc_application_code(&self) -> Bits<DiscApplicationCode> {
+                Bits::new(u7::extract_u8(self.s, 0))
+            }
+
+            bit!(a1_valid: f[2]);
+            bit!(a2_valid: f[1]);
+            bit!(a3_valid: f[0]);
+        }
+
+        debug_fields!(SpecialInformation1 {
+            indicative_target_writing_power_at_reference_speed,
+            reference_speed,
+            disc_application_code,
+            a1_valid,
+            a2_valid,
+            a3_valid,
+        });
+
+        /// Additional Information 1 of a Standard Speed CD-RW's ATIP.
+        #[derive(
+            FromBytes,
+            IntoBytes,
+            KnownLayout,
+            Immutable,
+            Unaligned,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+        )]
+        #[repr(C)]
         pub struct AdditionalInformation1 {
-            pub lowest_clv_speed: LowestClvSpeed,
-            pub highest_clv_speed: HighestClvSpeed,
-
-            pub power_mult_factor_ref_speed: PowerMultFactor,
-            pub target_value_modulation_function: TargetModulationValue,
-
-            pub erase_write_ratio_ref_speed: EraseWriteRatio,
+            m: u8,
+            s: u8,
+            f: u8,
         }
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        impl AdditionalInformation1 {
+            #[inline]
+            pub const fn lowest_usable_clv_recording_speed(&self) -> Bits<LowestClvSpeed> {
+                Bits::new(u3::extract_u8(self.m, 4))
+            }
+
+            #[inline]
+            pub const fn highest_usable_clv_recording_speed(&self) -> Bits<HighestClvSpeed> {
+                Bits::new(u4::extract_u8(self.m, 0))
+            }
+
+            /// Power Multiplication Factor ρ at Reference Speed.
+            #[inline]
+            pub const fn power_multiplication_factor_at_reference_speed(
+                &self,
+            ) -> Bits<PowerMultFactor> {
+                Bits::new(u3::extract_u8(self.s, 4))
+            }
+
+            /// Target γ value of the Modulation/Power function.
+            #[inline]
+            pub const fn target_gamma_value_of_the_modulation_power_function(
+                &self,
+            ) -> Bits<TargetModulationValue> {
+                Bits::new(u3::extract_u8(self.s, 1))
+            }
+
+            /// Recommended erase/write power ratio ε at Reference Speed.
+            #[inline]
+            pub const fn recommended_erase_write_power_ratio_at_reference_speed(
+                &self,
+            ) -> Bits<EraseWriteRatio> {
+                Bits::new(u3::extract_u8(self.f, 4))
+            }
+        }
+
+        debug_fields!(AdditionalInformation1 {
+            lowest_usable_clv_recording_speed,
+            highest_usable_clv_recording_speed,
+            power_multiplication_factor_at_reference_speed,
+            target_gamma_value_of_the_modulation_power_function,
+            recommended_erase_write_power_ratio_at_reference_speed,
+        });
+
+        /// Additional Information 2 of a Standard Speed CD-RW's ATIP.
+        #[derive(
+            FromBytes,
+            IntoBytes,
+            KnownLayout,
+            Immutable,
+            Unaligned,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+        )]
+        #[repr(C)]
         pub struct AdditionalInformation2 {
-            pub write_power_min_speed: WritePowerReferenceSpeed,
-            pub write_power_max_speed: WritePowerReferenceSpeed,
-
-            pub power_mult_factor_min_speed: PowerMultFactor,
-            pub power_mult_factor_max_speed: PowerMultFactor,
-
-            pub erase_write_ratio_min_speed: EraseWriteRatio,
-            pub erase_write_ratio_max_speed: EraseWriteRatio,
+            m: u8,
+            s: u8,
+            f: u8,
         }
+
+        impl AdditionalInformation2 {
+            #[inline]
+            pub const fn indicative_target_writing_power_at_lowest_usable_recording_speed(
+                &self,
+            ) -> Bits<WritePowerReferenceSpeed> {
+                Bits::new(u3::extract_u8(self.m, 4))
+            }
+
+            #[inline]
+            pub const fn indicative_target_writing_power_at_highest_usable_recording_speed(
+                &self,
+            ) -> Bits<WritePowerReferenceSpeed> {
+                Bits::new(u3::extract_u8(self.m, 1))
+            }
+
+            /// Power Multiplication Factor ρ at Lowest Usable Recording Speed.
+            #[inline]
+            pub const fn power_multiplication_factor_at_lowest_usable_recording_speed(
+                &self,
+            ) -> Bits<PowerMultFactor> {
+                Bits::new(u3::extract_u8(self.s, 4))
+            }
+
+            /// Power Multiplication Factor ρ at Highest Usable Recording Speed.
+            #[inline]
+            pub const fn power_multiplication_factor_at_highest_usable_recording_speed(
+                &self,
+            ) -> Bits<PowerMultFactor> {
+                Bits::new(u3::extract_u8(self.s, 1))
+            }
+
+            #[inline]
+            pub const fn recommended_erase_write_power_ratio_at_lowest_usable_recording_speed(
+                &self,
+            ) -> Bits<EraseWriteRatio> {
+                Bits::new(u3::extract_u8(self.f, 4))
+            }
+
+            #[inline]
+            pub const fn recommended_erase_write_power_ratio_at_highest_usable_recording_speed(
+                &self,
+            ) -> Bits<EraseWriteRatio> {
+                Bits::new(u3::extract_u8(self.f, 1))
+            }
+        }
+
+        debug_fields!(AdditionalInformation2 {
+            indicative_target_writing_power_at_lowest_usable_recording_speed,
+            indicative_target_writing_power_at_highest_usable_recording_speed,
+            power_multiplication_factor_at_lowest_usable_recording_speed,
+            power_multiplication_factor_at_highest_usable_recording_speed,
+            recommended_erase_write_power_ratio_at_lowest_usable_recording_speed,
+            recommended_erase_write_power_ratio_at_highest_usable_recording_speed,
+        });
+
+        // Additional Information 3 - All reserved
     }
 
     pub mod high_speed {
@@ -705,50 +1022,250 @@ pub mod cdrw {
         }
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct WriteStrategyOptimization(pub OptimumdTtop, pub OptimumdTera);
+        pub struct WriteStrategyOptimization(pub Bits<OptimumdTtop>, pub Bits<OptimumdTera>);
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        /// Special Information 1 of a High Speed CD-RW's ATIP.
+        #[derive(
+            FromBytes,
+            IntoBytes,
+            KnownLayout,
+            Immutable,
+            Unaligned,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+        )]
+        #[repr(C)]
         pub struct SpecialInformation1 {
-            pub target_writing_power: WritePower,
-            pub reference_speed: ReferenceSpeed,
-
-            pub disc_application_code: DiscApplicationCode,
-
-            pub a1_valid: bool,
-            pub a2_valid: bool,
-            pub a3_valid: bool,
+            m: u8,
+            s: u8,
+            f: u8,
         }
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        impl SpecialInformation1 {
+            #[inline]
+            pub const fn indicative_target_writing_power_at_reference_speed(
+                &self,
+            ) -> Bits<WritePower> {
+                Bits::new(u3::extract_u8(self.m, 4))
+            }
+
+            #[inline]
+            pub const fn reference_speed(&self) -> Bits<ReferenceSpeed> {
+                Bits::new(u3::extract_u8(self.m, 0))
+            }
+
+            #[inline]
+            pub const fn disc_application_code(&self) -> Bits<DiscApplicationCode> {
+                Bits::new(u7::extract_u8(self.s, 0))
+            }
+
+            bit!(a1_valid: f[2]);
+            bit!(a2_valid: f[1]);
+            bit!(a3_valid: f[0]);
+        }
+
+        debug_fields!(SpecialInformation1 {
+            indicative_target_writing_power_at_reference_speed,
+            reference_speed,
+            disc_application_code,
+            a1_valid,
+            a2_valid,
+            a3_valid,
+        });
+
+        /// Additional Information 1 of a High Speed CD-RW's ATIP.
+        #[derive(
+            FromBytes,
+            IntoBytes,
+            KnownLayout,
+            Immutable,
+            Unaligned,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+        )]
+        #[repr(C)]
         pub struct AdditionalInformation1 {
-            pub lowest_clv_speed: LowestClvSpeed,
-            pub highest_clv_speed: HighestClvSpeed,
-
-            pub power_mult_factor_ref_speed: PowerMultFactor,
-            pub target_value_modulation_function: TargetModulationValue,
-
-            pub erase_write_ratio_ref_speed: EraseWriteRatio,
-            pub write_strategy_optimization: WriteStrategyOptimization,
+            m: u8,
+            s: u8,
+            f: u8,
         }
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        impl AdditionalInformation1 {
+            #[inline]
+            pub const fn lowest_usable_clv_recording_speed(&self) -> Bits<LowestClvSpeed> {
+                Bits::new(u3::extract_u8(self.m, 4))
+            }
+
+            #[inline]
+            pub const fn highest_usable_clv_recording_speed(&self) -> Bits<HighestClvSpeed> {
+                Bits::new(u4::extract_u8(self.m, 0))
+            }
+
+            /// Power Multiplication Factor ρ at Reference Speed.
+            #[inline]
+            pub const fn power_multiplication_factor_at_reference_speed(
+                &self,
+            ) -> Bits<PowerMultFactor> {
+                Bits::new(u3::extract_u8(self.s, 4))
+            }
+
+            /// Target γ value of the modulation/power function for all speeds.
+            #[inline]
+            pub const fn target_gamma_value_of_the_modulation_power_function_for_all_speeds(
+                &self,
+            ) -> Bits<TargetModulationValue> {
+                Bits::new(u3::extract_u8(self.s, 1))
+            }
+
+            /// Recommended erase/write power ratio ε at Reference Speed.
+            #[inline]
+            pub const fn recommended_erase_write_power_ratio_at_reference_speed(
+                &self,
+            ) -> Bits<EraseWriteRatio> {
+                Bits::new(u3::extract_u8(self.f, 4))
+            }
+
+            #[inline]
+            pub const fn write_strategy_optimization(&self) -> WriteStrategyOptimization {
+                WriteStrategyOptimization(
+                    Bits::new(u2::extract_u8(self.f, 2)),
+                    Bits::new(u2::extract_u8(self.f, 0)),
+                )
+            }
+        }
+
+        debug_fields!(AdditionalInformation1 {
+            lowest_usable_clv_recording_speed,
+            highest_usable_clv_recording_speed,
+            power_multiplication_factor_at_reference_speed,
+            target_gamma_value_of_the_modulation_power_function_for_all_speeds,
+            recommended_erase_write_power_ratio_at_reference_speed,
+            write_strategy_optimization,
+        });
+
+        /// Additional Information 2 of a High Speed CD-RW's ATIP.
+        #[derive(
+            FromBytes,
+            IntoBytes,
+            KnownLayout,
+            Immutable,
+            Unaligned,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+        )]
+        #[repr(C)]
         pub struct AdditionalInformation2 {
-            pub write_power_min_speed: WritePower,
-            pub write_power_max_speed: WritePower,
-
-            pub power_mult_factor_min_speed: PowerMultFactor,
-            pub power_mult_factor_max_speed: PowerMultFactor,
-
-            pub erase_write_ratio_min_speed: EraseWriteRatio,
-            pub erase_write_ratio_max_speed: EraseWriteRatio,
+            m: u8,
+            s: u8,
+            f: u8,
         }
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        impl AdditionalInformation2 {
+            #[inline]
+            pub const fn indicative_target_writing_power_at_lowest_usable_recording_speed(
+                &self,
+            ) -> Bits<WritePower> {
+                Bits::new(u3::extract_u8(self.m, 4))
+            }
+
+            #[inline]
+            pub const fn indicative_target_writing_power_at_highest_usable_recording_speed(
+                &self,
+            ) -> Bits<WritePower> {
+                Bits::new(u3::extract_u8(self.m, 1))
+            }
+
+            /// Power Multiplication Factor ρ at Lowest Usable Recording Speed.
+            #[inline]
+            pub const fn power_multiplication_factor_at_lowest_usable_recording_speed(
+                &self,
+            ) -> Bits<PowerMultFactor> {
+                Bits::new(u3::extract_u8(self.s, 4))
+            }
+
+            /// Power Multiplication Factor ρ at Highest Usable Recording Speed.
+            #[inline]
+            pub const fn power_multiplication_factor_at_highest_usable_recording_speed(
+                &self,
+            ) -> Bits<PowerMultFactor> {
+                Bits::new(u3::extract_u8(self.s, 1))
+            }
+
+            #[inline]
+            pub const fn recommended_erase_write_power_ratio_at_lowest_usable_recording_speed(
+                &self,
+            ) -> Bits<EraseWriteRatio> {
+                Bits::new(u3::extract_u8(self.f, 4))
+            }
+
+            #[inline]
+            pub const fn recommended_erase_write_power_ratio_at_highest_usable_recording_speed(
+                &self,
+            ) -> Bits<EraseWriteRatio> {
+                Bits::new(u3::extract_u8(self.f, 1))
+            }
+        }
+
+        debug_fields!(AdditionalInformation2 {
+            indicative_target_writing_power_at_lowest_usable_recording_speed,
+            indicative_target_writing_power_at_highest_usable_recording_speed,
+            power_multiplication_factor_at_lowest_usable_recording_speed,
+            power_multiplication_factor_at_highest_usable_recording_speed,
+            recommended_erase_write_power_ratio_at_lowest_usable_recording_speed,
+            recommended_erase_write_power_ratio_at_highest_usable_recording_speed,
+        });
+
+        /// Additional Information 3 of a High Speed, Ultra Speed or Ultra Speed+ CD-RW's ATIP.
+        #[derive(
+            FromBytes,
+            IntoBytes,
+            KnownLayout,
+            Immutable,
+            Unaligned,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+        )]
+        #[repr(C)]
         pub struct AdditionalInformation3 {
-            pub media_technology_type: MediaTechnologyType,
-            pub media_identification_code: MediaIdentificationCode,
-            pub product_revision_number: u3,
+            m: u8,
+            s: u8,
+            f: u8,
         }
+
+        impl AdditionalInformation3 {
+            #[inline]
+            pub const fn media_technology_type(&self) -> Bits<MediaTechnologyType> {
+                Bits::new(u2::extract_u8(self.m, 5))
+            }
+
+            #[inline]
+            pub const fn media_identification_code(&self) -> MediaIdentificationCode {
+                MediaIdentificationCode::from_section(self.m, self.s, self.f)
+            }
+
+            #[inline]
+            pub const fn product_revision_number(&self) -> u3 {
+                u3::extract_u8(self.f, 0)
+            }
+        }
+
+        debug_fields!(AdditionalInformation3 {
+            media_technology_type,
+            media_identification_code,
+            product_revision_number,
+        });
     }
 
     pub mod ultra_speed {
@@ -919,61 +1436,348 @@ pub mod cdrw {
         }
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct WriteStrategyOptimization(pub OptimumdTtop, pub OptimumdTera);
+        pub struct WriteStrategyOptimization(pub Bits<OptimumdTtop>, pub Bits<OptimumdTera>);
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        /// Special Information 1 of an Ultra Speed CD-RW's ATIP.
+        #[derive(
+            FromBytes,
+            IntoBytes,
+            KnownLayout,
+            Immutable,
+            Unaligned,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+        )]
+        #[repr(C)]
         pub struct SpecialInformation1 {
-            pub target_writing_power: WritePower1tTestSpeed,
-            pub reference_speed: TestSpeed1t,
-
-            pub disc_application_code: DiscApplicationCode,
-
-            pub a1_valid: bool,
-            pub a2_valid: bool,
-            pub a3_valid: bool,
+            m: u8,
+            s: u8,
+            f: u8,
         }
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        impl SpecialInformation1 {
+            /// Indicative Target Writing Power at '1T' Test Speed.
+            #[inline]
+            pub const fn indicative_target_writing_power_at_1t_test_speed(
+                &self,
+            ) -> Bits<WritePower1tTestSpeed> {
+                Bits::new(u3::extract_u8(self.m, 4))
+            }
+
+            /// '1T' Test Speed.
+            #[doc(alias = "1T Test Speed")]
+            #[inline]
+            pub const fn test_speed_1t(&self) -> Bits<TestSpeed1t> {
+                Bits::new(u3::extract_u8(self.m, 0))
+            }
+
+            #[inline]
+            pub const fn disc_application_code(&self) -> Bits<DiscApplicationCode> {
+                Bits::new(u7::extract_u8(self.s, 0))
+            }
+
+            bit!(a1_valid: f[2]);
+            bit!(a2_valid: f[1]);
+            bit!(a3_valid: f[0]);
+        }
+
+        debug_fields!(SpecialInformation1 {
+            indicative_target_writing_power_at_1t_test_speed,
+            test_speed_1t,
+            disc_application_code,
+            a1_valid,
+            a2_valid,
+            a3_valid,
+        });
+
+        /// Additional Information 1 of an Ultra Speed CD-RW's ATIP.
+        #[derive(
+            FromBytes,
+            IntoBytes,
+            KnownLayout,
+            Immutable,
+            Unaligned,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+        )]
+        #[repr(C)]
         pub struct AdditionalInformation1 {
-            pub min_1t_test_speed: Lowest1tTestSpeed,
-            pub max_1t_test_speed: Highest1tTestSpeed,
-
-            pub power_mult_factor_1t_test_speed: PowerMultFactor,
-            pub target_value_modulation_function_1t_test_speed: TargetModulationValue,
-
-            pub erase_write_ratio_ref_speed: EraseWriteRatio,
-            pub write_strategy_optimization: WriteStrategyOptimization,
+            m: u8,
+            s: u8,
+            f: u8,
         }
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        impl AdditionalInformation1 {
+            /// Lowest '1T' Test Speed.
+            #[inline]
+            pub const fn lowest_1t_test_speed(&self) -> Bits<Lowest1tTestSpeed> {
+                Bits::new(u3::extract_u8(self.m, 4))
+            }
+
+            /// Highest '1T' Test Speed.
+            #[inline]
+            pub const fn highest_1t_test_speed(&self) -> Bits<Highest1tTestSpeed> {
+                Bits::new(u4::extract_u8(self.m, 0))
+            }
+
+            /// Power Multiplication Factor ρ at '1T' Test Speed.
+            #[inline]
+            pub const fn power_multiplication_factor_at_1t_test_speed(
+                &self,
+            ) -> Bits<PowerMultFactor> {
+                Bits::new(u3::extract_u8(self.s, 4))
+            }
+
+            /// Target γ value of the modulation/power function at '1T' Test Speed.
+            #[inline]
+            pub const fn target_gamma_value_of_the_modulation_power_function_at_1t_test_speed(
+                &self,
+            ) -> Bits<TargetModulationValue> {
+                Bits::new(u3::extract_u8(self.s, 1))
+            }
+
+            /// Recommended erase/write power ratio ε at '1T' Test Speed.
+            #[inline]
+            pub const fn recommended_erase_write_power_ratio_at_1t_test_speed(
+                &self,
+            ) -> Bits<EraseWriteRatio> {
+                Bits::new(u3::extract_u8(self.f, 4))
+            }
+
+            /// Write-strategy optimization at '1T' Test Speed.
+            #[inline]
+            pub const fn write_strategy_optimization_at_1t_test_speed(
+                &self,
+            ) -> WriteStrategyOptimization {
+                WriteStrategyOptimization(
+                    Bits::new(u2::extract_u8(self.f, 2)),
+                    Bits::new(u2::extract_u8(self.f, 0)),
+                )
+            }
+        }
+
+        debug_fields!(AdditionalInformation1 {
+            lowest_1t_test_speed,
+            highest_1t_test_speed,
+            power_multiplication_factor_at_1t_test_speed,
+            target_gamma_value_of_the_modulation_power_function_at_1t_test_speed,
+            recommended_erase_write_power_ratio_at_1t_test_speed,
+            write_strategy_optimization_at_1t_test_speed,
+        });
+
+        /// Additional Information 2 of an Ultra Speed CD-RW's ATIP.
+        #[derive(
+            FromBytes,
+            IntoBytes,
+            KnownLayout,
+            Immutable,
+            Unaligned,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+        )]
+        #[repr(C)]
         pub struct AdditionalInformation2 {
-            pub min_2t_test_speed: Lowest2tTestSpeed,
-            pub max_2t_test_speed: Highest2tTestSpeed,
-
-            pub optimum_write_power_16x_2t: WritePowerIndication,
-            pub optimum_write_power_hts_2t: WritePowerIndication,
-
-            pub optimum_erase_power_16x_2t: ErasePowerIndication,
-            pub optimum_erase_power_hts_2t: ErasePowerIndication,
+            m: u8,
+            s: u8,
+            f: u8,
         }
+
+        impl AdditionalInformation2 {
+            /// Lowest '2T' Write-strategy Test Speed.
+            #[inline]
+            pub const fn lowest_2t_write_strategy_test_speed(&self) -> Bits<Lowest2tTestSpeed> {
+                Bits::new(u3::extract_u8(self.m, 4))
+            }
+
+            /// Highest '2T' Write-strategy Test Speed.
+            #[inline]
+            pub const fn highest_2t_write_strategy_test_speed(&self) -> Bits<Highest2tTestSpeed> {
+                Bits::new(u4::extract_u8(self.m, 0))
+            }
+
+            /// Optimum '2T' Write-strategy write power indication at 16x.
+            #[inline]
+            pub const fn optimum_2t_write_strategy_write_power_indication_at_16x(
+                &self,
+            ) -> Bits<WritePowerIndication> {
+                Bits::new(u3::extract_u8(self.s, 4))
+            }
+
+            /// Optimum '2T' Write-strategy write power indication at HTS.
+            #[inline]
+            pub const fn optimum_2t_write_strategy_write_power_indication_at_hts(
+                &self,
+            ) -> Bits<WritePowerIndication> {
+                Bits::new(u3::extract_u8(self.s, 1))
+            }
+
+            /// Optimum '2T' Write-strategy erase power indication at 16x.
+            #[inline]
+            pub const fn optimum_2t_write_strategy_erase_power_indication_at_16x(
+                &self,
+            ) -> Bits<ErasePowerIndication> {
+                Bits::new(u3::extract_u8(self.f, 4))
+            }
+
+            /// Optimum '2T' Write-strategy erase power indication at HTS.
+            #[inline]
+            pub const fn optimum_2t_write_strategy_erase_power_indication_at_hts(
+                &self,
+            ) -> Bits<ErasePowerIndication> {
+                Bits::new(u3::extract_u8(self.f, 1))
+            }
+        }
+
+        debug_fields!(AdditionalInformation2 {
+            lowest_2t_write_strategy_test_speed,
+            highest_2t_write_strategy_test_speed,
+            optimum_2t_write_strategy_write_power_indication_at_16x,
+            optimum_2t_write_strategy_write_power_indication_at_hts,
+            optimum_2t_write_strategy_erase_power_indication_at_16x,
+            optimum_2t_write_strategy_erase_power_indication_at_hts,
+        });
 
         pub use super::high_speed::AdditionalInformation3;
     }
 
     pub mod ultra_speed_plus {
+        use super::ultra_speed::{ErasePowerIndication, Lowest2tTestSpeed, WritePowerIndication};
         use super::*;
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub struct SpecialInformation1 {
-            pub disc_application_code: DiscApplicationCode,
-
-            pub a1_valid: bool,
-            pub a2_valid: bool,
-            pub a3_valid: bool,
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, BitsEnum)]
+        #[bits(4, repr = u4, reserved = 0b0000..=0b1000 | 0b1010..=0b1111)]
+        pub enum Highest2tTestSpeed {
+            X32 = 0b1001,
         }
 
-        // US24 & US32 use the same Additional Information 2 structure
-        pub use super::ultra_speed::AdditionalInformation2;
+        /// Special Information 1 of an Ultra Speed+ CD-RW's ATIP.
+        #[derive(
+            FromBytes,
+            IntoBytes,
+            KnownLayout,
+            Immutable,
+            Unaligned,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+        )]
+        #[repr(C)]
+        pub struct SpecialInformation1 {
+            // M - all reserved
+            _m: u8,
+            s: u8,
+            f: u8,
+        }
+
+        impl SpecialInformation1 {
+            #[inline]
+            pub const fn disc_application_code(&self) -> Bits<DiscApplicationCode> {
+                Bits::new(u7::extract_u8(self.s, 0))
+            }
+
+            bit!(a1_valid: f[2]);
+            bit!(a2_valid: f[1]);
+            bit!(a3_valid: f[0]);
+        }
+
+        debug_fields!(SpecialInformation1 {
+            disc_application_code,
+            a1_valid,
+            a2_valid,
+            a3_valid,
+        });
+
+        // Additional Information 1 - All reserved
+
+        /// Additional Information 2 of an Ultra Speed+ CD-RW's ATIP.
+        ///
+        /// Laid out as an Ultra Speed CD-RW's, except for the values of the Highest '2T'
+        /// Write-strategy Test Speed.
+        #[derive(
+            FromBytes,
+            IntoBytes,
+            KnownLayout,
+            Immutable,
+            Unaligned,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+        )]
+        #[repr(C)]
+        pub struct AdditionalInformation2 {
+            m: u8,
+            s: u8,
+            f: u8,
+        }
+
+        impl AdditionalInformation2 {
+            /// Lowest '2T' Write-strategy Test Speed.
+            #[inline]
+            pub const fn lowest_2t_write_strategy_test_speed(&self) -> Bits<Lowest2tTestSpeed> {
+                Bits::new(u3::extract_u8(self.m, 4))
+            }
+
+            /// Highest '2T' Write-strategy Test Speed.
+            #[inline]
+            pub const fn highest_2t_write_strategy_test_speed(&self) -> Bits<Highest2tTestSpeed> {
+                Bits::new(u4::extract_u8(self.m, 0))
+            }
+
+            /// Optimum '2T' Write-strategy write power indication at 16x.
+            #[inline]
+            pub const fn optimum_2t_write_strategy_write_power_indication_at_16x(
+                &self,
+            ) -> Bits<WritePowerIndication> {
+                Bits::new(u3::extract_u8(self.s, 4))
+            }
+
+            /// Optimum '2T' Write-strategy write power indication at HTS.
+            #[inline]
+            pub const fn optimum_2t_write_strategy_write_power_indication_at_hts(
+                &self,
+            ) -> Bits<WritePowerIndication> {
+                Bits::new(u3::extract_u8(self.s, 1))
+            }
+
+            /// Optimum '2T' Write-strategy erase power indication at 16x.
+            #[inline]
+            pub const fn optimum_2t_write_strategy_erase_power_indication_at_16x(
+                &self,
+            ) -> Bits<ErasePowerIndication> {
+                Bits::new(u3::extract_u8(self.f, 4))
+            }
+
+            /// Optimum '2T' Write-strategy erase power indication at HTS.
+            #[inline]
+            pub const fn optimum_2t_write_strategy_erase_power_indication_at_hts(
+                &self,
+            ) -> Bits<ErasePowerIndication> {
+                Bits::new(u3::extract_u8(self.f, 1))
+            }
+        }
+
+        debug_fields!(AdditionalInformation2 {
+            lowest_2t_write_strategy_test_speed,
+            highest_2t_write_strategy_test_speed,
+            optimum_2t_write_strategy_write_power_indication_at_16x,
+            optimum_2t_write_strategy_write_power_indication_at_hts,
+            optimum_2t_write_strategy_erase_power_indication_at_16x,
+            optimum_2t_write_strategy_erase_power_indication_at_hts,
+        });
+
         pub use super::ultra_speed::AdditionalInformation3;
     }
 }

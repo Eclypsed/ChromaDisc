@@ -4,7 +4,7 @@ use std::{
 };
 
 use scsi3::{
-    core::{Command, Control, ReadCommand, addressing::Lba, util::Present},
+    core::{Command, Control, ReadCommand, util::Present},
     mmc::{
         commands::{
             get_configuration::GetConfiguration,
@@ -14,7 +14,7 @@ use scsi3::{
                 main_channel::{MainChannel, SectorMode, SelectionOf},
                 sub_channel::SubChannelSelection,
             },
-            read_toc_pma_atip::{ReadTocPmaAtip, formatted_toc::FormattedToc},
+            read_toc_pma_atip::ReadTocPmaAtip,
         },
         features::FeatureCode,
     },
@@ -51,8 +51,7 @@ fn print_inquiry(fd: &OwnedFd) {
 
 #[allow(dead_code)]
 fn print_toc(fd: &OwnedFd) {
-    let toc_cmd =
-        ReadTocPmaAtip::<FormattedToc<Lba>>::formatted_toc(0, 1024 * 8, Control::default());
+    let toc_cmd = ReadTocPmaAtip::atip(1024 * 8, Control::default());
     let mut toc_buf = vec![0u8; toc_cmd.response_len().into()];
 
     let _toc_received = run_sgio(

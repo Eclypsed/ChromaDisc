@@ -234,7 +234,7 @@ impl ReadTocPmaAtip<pma::Pma> {
 }
 
 impl ReadTocPmaAtip<atip::Atip> {
-    /// Requests the ATIP of a CD-R or CD-RW.
+    /// Requests the ATIP of a recordable CD or DDCD.
     pub const fn atip(allocation_length: u16, control: Control) -> Self {
         Self {
             _response_marker: PhantomData,
