@@ -6,7 +6,7 @@ macro_rules! bit {
     ($(#[$m:meta])* $name:ident: $field:ident[$bit:literal]) => {
         $(#[$m])*
         #[inline]
-        pub const fn $name(&self) -> bool { self.$field & (1 << $bit) != 0 }
+        pub const fn $name(&self) -> bool { self.$field as u8 & (1 << $bit) != 0 }
     };
 }
 

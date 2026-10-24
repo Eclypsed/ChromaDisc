@@ -6,6 +6,7 @@ use zerocopy::SplitByteSlice;
 pub mod addressing;
 pub mod ascii;
 pub mod util;
+pub(crate) mod validity;
 
 mod private {
     pub trait Sealed {}

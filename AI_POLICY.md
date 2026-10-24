@@ -1,6 +1,6 @@
 # AI Policy
 
-Generally speaking, I think the Ghostty project takes a very [reasonable stance](https://github.com/ghostty-org/ghostty/blob/main/AI_POLICY.md) towards AI usage. Generally speeking those policies apply to this project and should be considered a point of reference.[^1]
+I think the Ghostty project takes a very [reasonable stance](https://github.com/ghostty-org/ghostty/blob/main/AI_POLICY.md) towards AI usage. Generally speeking those policies apply to this project and should be considered a point of reference.[^1]
 
 [^1]: I wonder if in the future we will see some sort of standardization of AI-development policies reminiscent of software licenses?
 
@@ -18,7 +18,7 @@ If you have met me you almost certainly know how I feel about AI, and if not, yo
 
 **My Approach**
 
-In my experience, AI-development tools really want you to take the approach of throwing together a complete high-level plan and then have an agent do the rest of the coding, testing, etc. hands-off for you (because that's the approach that sells their narrative). I find that this almost always results in complete slop. If you genuinely put "don't come back until done" or "make no mistakes" at the end of your prompts, we probably won't get along.
+In my experience, AI-development tools really want you to take the approach of throwing together a complete high-level plan and then have an agent do the rest of the coding, testing, etc. hands-off for you (because that's the approach that sells their narrative). I find that this almost always results in complete slop.
 
 I always use the latest programming-focused models, and despite this, the only circumstances under which an AI is able to achieve a result that I am satisfied with is with me rigorously guiding it through every detail. Oftentimes, I will arrive at my optimal solution myself before the AI does, just as a result of talking through the problem.
 

@@ -155,11 +155,7 @@ impl private::ReadTocPmaAtipFormat for pma::Pma {
 impl ReadTocPmaAtipResponse for pma::Pma {}
 
 // ATIP
-impl private::ReadTocPmaAtipFormat for atip::Atip {
-    const MSF: bool = true;
-    const FORMAT: u4 = u4::new(0b0100);
-}
-impl ReadTocPmaAtipResponse for atip::Atip {}
+// TODO: Format 0100b, once the type its `parse` returns is settled (see `atip.rs`).
 
 // CD-TEXT
 // NOTE: [MMC-6] doesn't actually say that the MSF bit for CD-TEXT can't be zero, but all the
@@ -224,18 +220,6 @@ impl ReadTocPmaAtip<raw_toc::RawToc> {
 impl ReadTocPmaAtip<pma::Pma> {
     /// Requests the Q sub-channel data of the PMA.
     pub const fn pma(allocation_length: u16, control: Control) -> Self {
-        Self {
-            _response_marker: PhantomData,
-            track_session_number: 0,
-            allocation_length,
-            control,
-        }
-    }
-}
-
-impl ReadTocPmaAtip<atip::Atip> {
-    /// Requests the ATIP of a recordable CD or DDCD.
-    pub const fn atip(allocation_length: u16, control: Control) -> Self {
         Self {
             _response_marker: PhantomData,
             track_session_number: 0,
